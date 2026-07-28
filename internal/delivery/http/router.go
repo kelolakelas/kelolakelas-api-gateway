@@ -61,6 +61,21 @@ func NewRouter(proxyHandler *handler.ProxyHandler, jwtSecret string) *gin.Engine
 			// Proxied Academic routes
 			protected.POST("/categories", proxyHandler.ProxyToAcademicService())
 			protected.POST("/classes", proxyHandler.ProxyToAcademicService())
+
+			// Schedule Management routes
+			protected.POST("/schedules", proxyHandler.ProxyToAcademicService())
+			protected.PUT("/schedules/permanent", proxyHandler.ProxyToAcademicService())
+			protected.PUT("/schedules/:id/permanent", proxyHandler.ProxyToAcademicService())
+			protected.PATCH("/schedules/tutor-permanent", proxyHandler.ProxyToAcademicService())
+			protected.PATCH("/schedules/:id/tutor-permanent", proxyHandler.ProxyToAcademicService())
+			protected.PUT("/schedules/tutor-permanent", proxyHandler.ProxyToAcademicService())
+			protected.PUT("/schedules/:id/tutor-permanent", proxyHandler.ProxyToAcademicService())
+
+			// Session Management routes
+			protected.POST("/sessions/reschedule", proxyHandler.ProxyToAcademicService())
+			protected.POST("/sessions/:id/reschedule", proxyHandler.ProxyToAcademicService())
+			protected.PATCH("/sessions/substitute-tutor", proxyHandler.ProxyToAcademicService())
+			protected.PATCH("/sessions/:id/substitute-tutor", proxyHandler.ProxyToAcademicService())
 		}
 	}
 
