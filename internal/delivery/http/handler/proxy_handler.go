@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -65,4 +66,30 @@ func (h *ProxyHandler) ProxyToAcademicService() gin.HandlerFunc {
 
 		proxy.ServeHTTP(c.Writer, c.Request)
 	}
+}
+
+func (h *ProxyHandler) ProxyWithPrefixStrip(targetURL *url.URL, prefixToStrip string) gin.HandlerFunc {
+	proxy := httputil.NewSingleHostReverseProxy(targetURL)
+
+	originalDirector := proxy.Director
+	proxy.Director = func(req *http.Request) {
+		originalDirector(req)
+		req.Host = targetURL.Host
+		if prefixToStrip != "" && strings.HasPrefix(req.URL.Path, prefixToStrip) {
+			req.URL.Path = strings.TrimPrefix(req.URL.Path, prefixToStrip)
+		}
+		slog.Info("Proxying request with prefix strip", "target", targetURL.Host, "method", req.Method, "path", req.URL.Path)
+	}
+
+	return func(c *gin.Context) {
+		proxy.ServeHTTP(c.Writer, c.Request)
+	}
+}
+
+func (h *ProxyHandler) ProxyIdentitySwagger() gin.HandlerFunc {
+	return h.ProxyWithPrefixStrip(h.identityServiceURL, "/identity")
+}
+
+func (h *ProxyHandler) ProxyAcademicSwagger() gin.HandlerFunc {
+	return h.ProxyWithPrefixStrip(h.academicServiceURL, "/academic")
 }

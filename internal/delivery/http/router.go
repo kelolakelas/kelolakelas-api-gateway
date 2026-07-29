@@ -22,6 +22,14 @@ func NewRouter(proxyHandler *handler.ProxyHandler, jwtSecret string) *gin.Engine
 		})
 	})
 
+	// Swagger UI routes
+	r.GET("/swagger", func(c *gin.Context) {
+		c.Redirect(http.StatusMovedPermanently, "/swagger/index.html")
+	})
+	r.GET("/swagger/*any", handler.SwaggerUIHandler())
+	r.GET("/identity/swagger/*any", proxyHandler.ProxyIdentitySwagger())
+	r.GET("/academic/swagger/*any", proxyHandler.ProxyAcademicSwagger())
+
 	apiV1 := r.Group("/api/v1")
 	{
 		// Public Auth & Invitation routes - proxying directly to identity-service

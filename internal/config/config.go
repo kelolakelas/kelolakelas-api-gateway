@@ -42,7 +42,7 @@ func LoadConfig() (Config, error) {
 		config.JWTSecret = "supersecretjwtkey123!"
 	}
 	if config.Port == "" {
-		config.Port = "3000"
+		config.Port = "8000"
 	}
 	if config.IdentityServiceURL == "" {
 		config.IdentityServiceURL = "http://localhost:8080"
