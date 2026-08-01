@@ -5,8 +5,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/tutorin-id/tutorin-api-gateway/internal/delivery/http/handler"
-	"github.com/tutorin-id/tutorin-api-gateway/internal/delivery/http/middleware"
+	"github.com/kelolakelas/kelolakelas-api-gateway/internal/delivery/http/handler"
+	"github.com/kelolakelas/kelolakelas-api-gateway/internal/delivery/http/middleware"
 )
 
 func NewRouter(proxyHandler *handler.ProxyHandler, jwtSecret string) *gin.Engine {
@@ -29,6 +29,7 @@ func NewRouter(proxyHandler *handler.ProxyHandler, jwtSecret string) *gin.Engine
 	r.GET("/swagger/*any", handler.SwaggerUIHandler())
 	r.GET("/identity/swagger/*any", proxyHandler.ProxyIdentitySwagger())
 	r.GET("/academic/swagger/*any", proxyHandler.ProxyAcademicSwagger())
+	r.GET("/billing/swagger/*any", proxyHandler.ProxyBillingSwagger())
 
 	apiV1 := r.Group("/api/v1")
 	{
@@ -38,6 +39,9 @@ func NewRouter(proxyHandler *handler.ProxyHandler, jwtSecret string) *gin.Engine
 		apiV1.POST("/tenants/register", proxyHandler.ProxyToIdentityService())
 		apiV1.GET("/invitations/verify", proxyHandler.ProxyToIdentityService())
 		apiV1.POST("/invitations/register", proxyHandler.ProxyToIdentityService())
+
+		// Public Webhook routes - proxying directly to billing-service
+		apiV1.POST("/billing/webhooks/flip", proxyHandler.ProxyToBillingService())
 
 		// Protected routes
 		protected := apiV1.Group("")
@@ -84,6 +88,13 @@ func NewRouter(proxyHandler *handler.ProxyHandler, jwtSecret string) *gin.Engine
 			protected.POST("/sessions/:id/reschedule", proxyHandler.ProxyToAcademicService())
 			protected.PATCH("/sessions/substitute-tutor", proxyHandler.ProxyToAcademicService())
 			protected.PATCH("/sessions/:id/substitute-tutor", proxyHandler.ProxyToAcademicService())
+
+			// Enrollment Management routes
+			protected.POST("/tenants/:tenant_id/enrollments", proxyHandler.ProxyToAcademicService())
+			protected.PUT("/enrollments/:id/status", proxyHandler.ProxyToAcademicService())
+
+			// Billing Transaction routes
+			protected.POST("/billing/transactions", proxyHandler.ProxyToBillingService())
 		}
 	}
 

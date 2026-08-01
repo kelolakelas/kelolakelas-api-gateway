@@ -13,6 +13,7 @@ type Config struct {
 	Port               string `mapstructure:"PORT"`
 	IdentityServiceURL string `mapstructure:"IDENTITY_SERVICE_URL"`
 	AcademicServiceURL string `mapstructure:"ACADEMIC_SERVICE_URL"`
+	BillingServiceURL  string `mapstructure:"BILLING_SERVICE_URL"`
 }
 
 func LoadConfig() (Config, error) {
@@ -49,6 +50,9 @@ func LoadConfig() (Config, error) {
 	}
 	if config.AcademicServiceURL == "" {
 		config.AcademicServiceURL = "http://localhost:8081"
+	}
+	if config.BillingServiceURL == "" {
+		config.BillingServiceURL = "http://localhost:8082"
 	}
 
 	return config, nil

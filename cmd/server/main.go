@@ -3,9 +3,9 @@ package main
 import (
 	"log"
 
-	"github.com/tutorin-id/tutorin-api-gateway/internal/config"
-	"github.com/tutorin-id/tutorin-api-gateway/internal/delivery/http"
-	"github.com/tutorin-id/tutorin-api-gateway/internal/delivery/http/handler"
+	"github.com/kelolakelas/kelolakelas-api-gateway/internal/config"
+	"github.com/kelolakelas/kelolakelas-api-gateway/internal/delivery/http"
+	"github.com/kelolakelas/kelolakelas-api-gateway/internal/delivery/http/handler"
 )
 
 func main() {
@@ -16,7 +16,7 @@ func main() {
 	}
 
 	// Initialize proxy handler
-	proxyHandler, err := handler.NewProxyHandler(cfg.IdentityServiceURL, cfg.AcademicServiceURL)
+	proxyHandler, err := handler.NewProxyHandler(cfg.IdentityServiceURL, cfg.AcademicServiceURL, cfg.BillingServiceURL)
 	if err != nil {
 		log.Fatalf("Failed to initialize proxy handler: %v", err)
 	}

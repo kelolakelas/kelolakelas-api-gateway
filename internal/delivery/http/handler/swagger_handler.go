@@ -12,7 +12,7 @@ const swaggerUIHTML = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Tutorin Platform API Documentation</title>
+  <title>KelolaKelas Platform API Documentation</title>
   <link rel="stylesheet" type="text/css" href="./swagger-ui.css" />
   <link rel="icon" type="image/png" href="./favicon-32x32.png" sizes="32x32" />
   <style>
@@ -30,7 +30,8 @@ window.onload = function() {
   const ui = SwaggerUIBundle({
     urls: [
       { url: "/identity/swagger/doc.json", name: "Identity Service" },
-      { url: "/academic/swagger/doc.json", name: "Academic Service" }
+      { url: "/academic/swagger/doc.json", name: "Academic Service" },
+      { url: "/billing/swagger/doc.json", name: "Billing Service" }
     ],
     "urls.primaryName": "Identity Service",
     dom_id: '#swagger-ui',

@@ -13,9 +13,10 @@ import (
 type ProxyHandler struct {
 	identityServiceURL *url.URL
 	academicServiceURL *url.URL
+	billingServiceURL  *url.URL
 }
 
-func NewProxyHandler(identityServiceAddr, academicServiceAddr string) (*ProxyHandler, error) {
+func NewProxyHandler(identityServiceAddr, academicServiceAddr, billingServiceAddr string) (*ProxyHandler, error) {
 	parsedIdentity, err := url.Parse(identityServiceAddr)
 	if err != nil {
 		return nil, err
@@ -24,9 +25,14 @@ func NewProxyHandler(identityServiceAddr, academicServiceAddr string) (*ProxyHan
 	if err != nil {
 		return nil, err
 	}
+	parsedBilling, err := url.Parse(billingServiceAddr)
+	if err != nil {
+		return nil, err
+	}
 	return &ProxyHandler{
 		identityServiceURL: parsedIdentity,
 		academicServiceURL: parsedAcademic,
+		billingServiceURL:  parsedBilling,
 	}, nil
 }
 
@@ -68,6 +74,27 @@ func (h *ProxyHandler) ProxyToAcademicService() gin.HandlerFunc {
 	}
 }
 
+func (h *ProxyHandler) ProxyToBillingService() gin.HandlerFunc {
+	proxy := httputil.NewSingleHostReverseProxy(h.billingServiceURL)
+
+	originalDirector := proxy.Director
+	proxy.Director = func(req *http.Request) {
+		originalDirector(req)
+		req.Host = h.billingServiceURL.Host
+
+		slog.Info("Proxying request to billing-service", "method", req.Method, "path", req.URL.Path)
+	}
+
+	return func(c *gin.Context) {
+		tenantID := c.GetString("tenant_id")
+		if tenantID != "" {
+			c.Request.Header.Set("X-Tenant-ID", tenantID)
+		}
+
+		proxy.ServeHTTP(c.Writer, c.Request)
+	}
+}
+
 func (h *ProxyHandler) ProxyWithPrefixStrip(targetURL *url.URL, prefixToStrip string) gin.HandlerFunc {
 	proxy := httputil.NewSingleHostReverseProxy(targetURL)
 
@@ -92,4 +119,8 @@ func (h *ProxyHandler) ProxyIdentitySwagger() gin.HandlerFunc {
 
 func (h *ProxyHandler) ProxyAcademicSwagger() gin.HandlerFunc {
 	return h.ProxyWithPrefixStrip(h.academicServiceURL, "/academic")
+}
+
+func (h *ProxyHandler) ProxyBillingSwagger() gin.HandlerFunc {
+	return h.ProxyWithPrefixStrip(h.billingServiceURL, "/billing")
 }
