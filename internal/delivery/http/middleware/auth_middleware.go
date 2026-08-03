@@ -13,6 +13,9 @@ type Claims struct {
 	UserID   string `json:"user_id"`
 	Email    string `json:"email"`
 	TenantID string `json:"tenant_id,omitempty"`
+	RoleID   string `json:"role_id,omitempty"`
+	MemberID string `json:"member_id,omitempty"`
+	IsParent bool   `json:"is_parent,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -75,6 +78,9 @@ func AuthMiddleware(jwtSecret string) gin.HandlerFunc {
 		c.Set("user_id", claims.UserID)
 		c.Set("email", claims.Email)
 		c.Set("tenant_id", claims.TenantID)
+		c.Set("role_id", claims.RoleID)
+		c.Set("member_id", claims.MemberID)
+		c.Set("is_parent", claims.IsParent)
 
 		c.Next()
 	}

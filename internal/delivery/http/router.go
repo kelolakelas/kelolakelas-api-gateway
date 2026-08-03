@@ -41,7 +41,7 @@ func NewRouter(proxyHandler *handler.ProxyHandler, jwtSecret string) *gin.Engine
 		apiV1.POST("/invitations/register", proxyHandler.ProxyToIdentityService())
 
 		// Public Webhook routes - proxying directly to billing-service
-		apiV1.POST("/billing/webhooks/flip", proxyHandler.ProxyToBillingService())
+		apiV1.POST("/billing/webhooks/duitku", proxyHandler.ProxyToBillingService())
 
 		// Protected routes
 		protected := apiV1.Group("")
@@ -49,33 +49,47 @@ func NewRouter(proxyHandler *handler.ProxyHandler, jwtSecret string) *gin.Engine
 		{
 			// Proxied Identity routes
 			protected.POST("/invitations", proxyHandler.ProxyToIdentityService())
+			protected.GET("/members", proxyHandler.ProxyToIdentityService())
+			protected.GET("/tutors", proxyHandler.ProxyToIdentityService())
+			protected.GET("/members/:id", proxyHandler.ProxyToIdentityService())
+			protected.PUT("/members/:id/role", proxyHandler.ProxyToIdentityService())
+			protected.GET("/tenant/settings", proxyHandler.ProxyToIdentityService())
+			protected.PATCH("/tenant/settings", proxyHandler.ProxyToIdentityService())
+			protected.GET("/tenants/settings", proxyHandler.ProxyToIdentityService())
+			protected.PATCH("/tenants/settings", proxyHandler.ProxyToIdentityService())
 			protected.GET("/permissions", proxyHandler.ProxyToIdentityService())
 			protected.GET("/roles", proxyHandler.ProxyToIdentityService())
 			protected.POST("/roles", proxyHandler.ProxyToIdentityService())
 			protected.PUT("/roles/:id", proxyHandler.ProxyToIdentityService())
 			protected.DELETE("/roles/:id", proxyHandler.ProxyToIdentityService())
 
-			// Dummy protected route to demonstrate functionality
-			protected.GET("/protected-demo", func(c *gin.Context) {
-				userID, _ := c.Get("user_id")
-				email, _ := c.Get("email")
-
-				c.JSON(http.StatusOK, gin.H{
-					"status":  "success",
-					"message": "You have accessed a protected route via API Gateway!",
-					"data": gin.H{
-						"user_id": userID,
-						"email":   email,
-					},
-				})
-			})
-
 			// Proxied Academic routes
 			protected.POST("/categories", proxyHandler.ProxyToAcademicService())
+			protected.GET("/categories", proxyHandler.ProxyToAcademicService())
+			protected.DELETE("/categories/:id", proxyHandler.ProxyToAcademicService())
+			protected.GET("/classes", proxyHandler.ProxyToAcademicService())
 			protected.POST("/classes", proxyHandler.ProxyToAcademicService())
+			protected.POST("/classes/with-category", proxyHandler.ProxyToAcademicService())
+			protected.DELETE("/classes/:id", proxyHandler.ProxyToAcademicService())
+			protected.GET("/students", proxyHandler.ProxyToAcademicService())
+			protected.POST("/students", proxyHandler.ProxyToAcademicService())
+			protected.GET("/students/:id", proxyHandler.ProxyToAcademicService())
+			protected.PATCH("/students/:id", proxyHandler.ProxyToAcademicService())
+			protected.DELETE("/students/:id", proxyHandler.ProxyToAcademicService())
+			protected.GET("/attendance", proxyHandler.ProxyToAcademicService())
+			protected.POST("/attendance", proxyHandler.ProxyToAcademicService())
+			protected.GET("/attendance/:id", proxyHandler.ProxyToAcademicService())
+			protected.PATCH("/attendance/:id", proxyHandler.ProxyToAcademicService())
+			protected.GET("/reports", proxyHandler.ProxyToAcademicService())
+			protected.POST("/reports", proxyHandler.ProxyToAcademicService())
+			protected.GET("/reports/:id", proxyHandler.ProxyToAcademicService())
+			protected.PATCH("/reports/:id", proxyHandler.ProxyToAcademicService())
+			protected.DELETE("/reports/:id", proxyHandler.ProxyToAcademicService())
 
 			// Schedule Management routes
 			protected.POST("/schedules", proxyHandler.ProxyToAcademicService())
+			protected.GET("/schedules", proxyHandler.ProxyToAcademicService())
+			protected.DELETE("/schedules/:id", proxyHandler.ProxyToAcademicService())
 			protected.PUT("/schedules/permanent", proxyHandler.ProxyToAcademicService())
 			protected.PUT("/schedules/:id/permanent", proxyHandler.ProxyToAcademicService())
 			protected.PATCH("/schedules/tutor-permanent", proxyHandler.ProxyToAcademicService())
@@ -84,17 +98,24 @@ func NewRouter(proxyHandler *handler.ProxyHandler, jwtSecret string) *gin.Engine
 			protected.PUT("/schedules/:id/tutor-permanent", proxyHandler.ProxyToAcademicService())
 
 			// Session Management routes
+			protected.GET("/sessions", proxyHandler.ProxyToAcademicService())
+			protected.GET("/sessions/:id", proxyHandler.ProxyToAcademicService())
+			protected.GET("/sessions/:id/attendees", proxyHandler.ProxyToAcademicService())
 			protected.POST("/sessions/reschedule", proxyHandler.ProxyToAcademicService())
 			protected.POST("/sessions/:id/reschedule", proxyHandler.ProxyToAcademicService())
 			protected.PATCH("/sessions/substitute-tutor", proxyHandler.ProxyToAcademicService())
 			protected.PATCH("/sessions/:id/substitute-tutor", proxyHandler.ProxyToAcademicService())
 
 			// Enrollment Management routes
+			protected.GET("/enrollments", proxyHandler.ProxyToAcademicService())
+			protected.GET("/enrollments/:id", proxyHandler.ProxyToAcademicService())
 			protected.POST("/tenants/:tenant_id/enrollments", proxyHandler.ProxyToAcademicService())
 			protected.PUT("/enrollments/:id/status", proxyHandler.ProxyToAcademicService())
 
 			// Billing Transaction routes
 			protected.POST("/billing/transactions", proxyHandler.ProxyToBillingService())
+			protected.GET("/billing/transactions", proxyHandler.ProxyToBillingService())
+			protected.GET("/billing/transactions/:id", proxyHandler.ProxyToBillingService())
 		}
 	}
 
