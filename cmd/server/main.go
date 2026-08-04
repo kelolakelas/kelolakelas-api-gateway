@@ -50,7 +50,7 @@ func main() {
 	}, logger)
 
 	logger.Info("Starting API Gateway", "port", cfg.Port)
-	if err := r.Run(":" + cfg.Port); err != nil {
+	if err := r.Run("0.0.0.0:" + cfg.Port); err != nil {
 		logger.Error("Failed to start API Gateway", "error", err)
 	}
 }
