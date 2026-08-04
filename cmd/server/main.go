@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"log/slog"
 	"net"
 
@@ -28,11 +29,7 @@ func main() {
 	}
 
 	logger := slog.Default()
-	redisClient := redis.NewClient(&redis.Options{
-		Addr:     net.JoinHostPort(cfg.RedisHost, cfg.RedisPort),
-		Password: cfg.RedisPassword,
-		DB:       cfg.RedisDB,
-	})
+	redisClient := redis.NewClient(buildRedisOptions(cfg))
 	if err := redisClient.Ping(context.Background()).Err(); err != nil {
 		logger.Warn("Redis is unavailable; rate limiter is running in fail-open mode", "error", err)
 	}
@@ -53,4 +50,21 @@ func main() {
 	if err := r.Run("0.0.0.0:" + cfg.Port); err != nil {
 		logger.Error("Failed to start API Gateway", "error", err)
 	}
+}
+
+func buildRedisOptions(cfg config.Config) *redis.Options {
+	return &redis.Options{
+		Addr:      net.JoinHostPort(cfg.RedisHost, cfg.RedisPort),
+		Username:  cfg.RedisUsername,
+		Password:  cfg.RedisPassword,
+		DB:        cfg.RedisDB,
+		TLSConfig: redisTLSConfig(cfg.RedisTLS),
+	}
+}
+
+func redisTLSConfig(enabled bool) *tls.Config {
+	if !enabled {
+		return nil
+	}
+	return &tls.Config{MinVersion: tls.VersionTLS12}
 }

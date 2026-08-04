@@ -53,3 +53,47 @@ func TestLoadConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestRedisConfiguration(t *testing.T) {
+	tests := []struct {
+		name         string
+		setup        func(*testing.T)
+		wantTLS      bool
+		wantDB       int
+		wantUsername string
+		wantErr      bool
+	}{
+		{name: "defaults", wantUsername: "default"},
+		{name: "parses TLS and database", setup: func(t *testing.T) {
+			t.Setenv("REDIS_TLS", "true")
+			t.Setenv("REDIS_DB", "4")
+			t.Setenv("REDIS_USERNAME", "upstash")
+		}, wantTLS: true, wantDB: 4, wantUsername: "upstash"},
+		{name: "rejects invalid database", setup: func(t *testing.T) { t.Setenv("REDIS_DB", "invalid") }, wantErr: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			viper.Reset()
+			t.Chdir(t.TempDir())
+			for _, key := range []string{"JWT_SECRET", "REDIS_TLS", "REDIS_DB", "REDIS_USERNAME"} {
+				t.Setenv(key, "")
+			}
+			if test.setup != nil {
+				test.setup(t)
+			}
+			config, err := LoadConfig()
+			if test.wantErr {
+				if err == nil {
+					t.Fatal("expected configuration error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if config.RedisTLS != test.wantTLS || config.RedisDB != test.wantDB || config.RedisUsername != test.wantUsername {
+				t.Fatalf("redis config=%+v", config)
+			}
+		})
+	}
+}

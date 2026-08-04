@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/joho/godotenv"
@@ -20,7 +21,9 @@ type Config struct {
 	BillingServiceURL  string `mapstructure:"BILLING_SERVICE_URL"`
 	RedisHost          string `mapstructure:"REDIS_HOST"`
 	RedisPort          string `mapstructure:"REDIS_PORT"`
+	RedisUsername      string `mapstructure:"REDIS_USERNAME"`
 	RedisPassword      string `mapstructure:"REDIS_PASSWORD"`
+	RedisTLS           bool   `mapstructure:"REDIS_TLS"`
 	RedisDB            int    `mapstructure:"REDIS_DB"`
 	RateLimitRequests  int    `mapstructure:"RATE_LIMIT_REQUESTS"`
 	RateLimitWindow    int    `mapstructure:"RATE_LIMIT_WINDOW_SECONDS"`
@@ -50,7 +53,7 @@ func LoadConfig() (Config, error) {
 	viper.AutomaticEnv()
 	for _, key := range []string{
 		"JWT_SECRET", "APP_URL", "PORT", "IDENTITY_SERVICE_URL", "ACADEMIC_SERVICE_URL", "BILLING_SERVICE_URL",
-		"REDIS_HOST", "REDIS_PORT", "REDIS_PASSWORD", "REDIS_DB", "RATE_LIMIT_REQUESTS",
+		"REDIS_HOST", "REDIS_PORT", "REDIS_USERNAME", "REDIS_PASSWORD", "REDIS_TLS", "REDIS_DB", "RATE_LIMIT_REQUESTS",
 		"RATE_LIMIT_WINDOW_SECONDS", "RATE_LIMIT_PUBLIC_REQUESTS", "RATE_LIMIT_PROTECTED_REQUESTS",
 		"RATE_LIMIT_LOGIN_REQUESTS", "RATE_LIMIT_REGISTER_REQUESTS", "RATE_LIMIT_WEBHOOK_REQUESTS",
 		"RATE_LIMIT_WEBHOOK_WINDOW_SECONDS",
@@ -60,10 +63,29 @@ func LoadConfig() (Config, error) {
 		}
 	}
 
+	var parsedRedisTLS bool
+	if redisTLS := viper.GetString("REDIS_TLS"); redisTLS != "" {
+		var err error
+		parsedRedisTLS, err = strconv.ParseBool(redisTLS)
+		if err != nil {
+			return Config{}, fmt.Errorf("REDIS_TLS must be a boolean: %w", err)
+		}
+	}
+	parsedRedisDB := 0
+	if redisDB := viper.GetString("REDIS_DB"); redisDB != "" {
+		var err error
+		parsedRedisDB, err = strconv.Atoi(redisDB)
+		if err != nil || parsedRedisDB < 0 {
+			return Config{}, fmt.Errorf("REDIS_DB must be a non-negative integer")
+		}
+	}
+
 	var config Config
 	if err := viper.Unmarshal(&config); err != nil {
 		return Config{}, err
 	}
+	config.RedisTLS = parsedRedisTLS
+	config.RedisDB = parsedRedisDB
 
 	// Default fallback values
 	if config.JWTSecret == "" {
@@ -93,6 +115,9 @@ func LoadConfig() (Config, error) {
 	}
 	if config.RedisPort == "" {
 		config.RedisPort = "6379"
+	}
+	if config.RedisUsername == "" {
+		config.RedisUsername = "default"
 	}
 	if config.RateLimitRequests <= 0 {
 		config.RateLimitRequests = 60
