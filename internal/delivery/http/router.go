@@ -1,6 +1,7 @@
 package http
 
 import (
+	"log/slog"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -10,15 +11,25 @@ import (
 )
 
 func NewRouter(proxyHandler *handler.ProxyHandler, jwtSecret string) *gin.Engine {
+	return NewRouterWithConfig(proxyHandler, jwtSecret, "", nil, middleware.RateLimitConfig{}, slog.Default())
+}
+
+func NewRouterWithRateLimit(proxyHandler *handler.ProxyHandler, jwtSecret string, redisClient middleware.RedisClient, rateLimitConfig middleware.RateLimitConfig, logger *slog.Logger) *gin.Engine {
+	return NewRouterWithConfig(proxyHandler, jwtSecret, "", redisClient, rateLimitConfig, logger)
+}
+
+func NewRouterWithConfig(proxyHandler *handler.ProxyHandler, jwtSecret, appURL string, redisClient middleware.RedisClient, rateLimitConfig middleware.RateLimitConfig, logger *slog.Logger) *gin.Engine {
 	r := gin.New()
+	_ = r.SetTrustedProxies(nil)
 	r.Use(gin.Recovery())
+	r.Use(middleware.CORSMiddleware(appURL))
+	r.Use(middleware.RateLimitMiddleware(redisClient, rateLimitConfig, logger))
 
 	// Health check endpoint
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
-			"status":  "success",
-			"message": "API Gateway is healthy",
-			"data":    nil,
+			"status":  "healthy",
+			"service": "api-gateway",
 		})
 	})
 
@@ -53,6 +64,7 @@ func NewRouter(proxyHandler *handler.ProxyHandler, jwtSecret string) *gin.Engine
 			protected.GET("/tutors", proxyHandler.ProxyToIdentityService())
 			protected.GET("/members/:id", proxyHandler.ProxyToIdentityService())
 			protected.PUT("/members/:id/role", proxyHandler.ProxyToIdentityService())
+			protected.DELETE("/members/:id", proxyHandler.ProxyToIdentityService())
 			protected.GET("/tenant/settings", proxyHandler.ProxyToIdentityService())
 			protected.PATCH("/tenant/settings", proxyHandler.ProxyToIdentityService())
 			protected.GET("/tenants/settings", proxyHandler.ProxyToIdentityService())
@@ -100,6 +112,7 @@ func NewRouter(proxyHandler *handler.ProxyHandler, jwtSecret string) *gin.Engine
 			// Session Management routes
 			protected.GET("/sessions", proxyHandler.ProxyToAcademicService())
 			protected.GET("/sessions/:id", proxyHandler.ProxyToAcademicService())
+			protected.DELETE("/sessions/:id", proxyHandler.ProxyToAcademicService())
 			protected.GET("/sessions/:id/attendees", proxyHandler.ProxyToAcademicService())
 			protected.POST("/sessions/reschedule", proxyHandler.ProxyToAcademicService())
 			protected.POST("/sessions/:id/reschedule", proxyHandler.ProxyToAcademicService())

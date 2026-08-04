@@ -3,6 +3,7 @@ package http
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -68,5 +69,24 @@ func TestProtectedRoutesProxyToExpectedService(t *testing.T) {
 				t.Fatalf("service=%q want=%q", got, test.service)
 			}
 		})
+	}
+}
+
+func TestHealthEndpoint(t *testing.T) {
+	proxy, err := handler.NewProxyHandler("http://identity", "http://academic", "http://billing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/health", nil)
+	NewRouter(proxy, "secret").ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d", recorder.Code)
+	}
+	if got := recorder.Header().Get("Content-Type"); got != "application/json; charset=utf-8" {
+		t.Fatalf("content-type=%q", got)
+	}
+	if !strings.Contains(recorder.Body.String(), `"service":"api-gateway"`) {
+		t.Fatalf("body=%s", recorder.Body.String())
 	}
 }
