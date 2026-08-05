@@ -90,3 +90,39 @@ func TestHealthEndpoint(t *testing.T) {
 		t.Fatalf("body=%s", recorder.Body.String())
 	}
 }
+
+func TestCatalogPublicAndEnrollmentProtected(t *testing.T) {
+	var gotPath string
+	academic := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer academic.Close()
+	proxy, err := handler.NewProxyHandler("http://identity", academic.URL, "http://billing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	router := NewRouter(proxy, "secret")
+	public := httptest.NewRecorder()
+	router.ServeHTTP(public, httptest.NewRequest(http.MethodGet, "/api/v1/catalog/classes", nil))
+	if public.Code != http.StatusNoContent || gotPath != "/api/v1/catalog/classes" {
+		t.Fatalf("public status=%d path=%s", public.Code, gotPath)
+	}
+	protected := httptest.NewRecorder()
+	router.ServeHTTP(protected, httptest.NewRequest(http.MethodPost, "/api/v1/catalog/classes/00000000-0000-0000-0000-000000000001/enrollments", nil))
+	if protected.Code != http.StatusUnauthorized {
+		t.Fatalf("enrollment status=%d", protected.Code)
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"user_id": "00000000-0000-0000-0000-000000000001", "is_parent": true, "exp": time.Now().Add(time.Hour).Unix()})
+	tokenString, err := token.SignedString([]byte("secret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	authorized := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/catalog/classes/00000000-0000-0000-0000-000000000001/enrollments", nil)
+	request.Header.Set("Authorization", "Bearer "+tokenString)
+	router.ServeHTTP(authorized, request)
+	if authorized.Code != http.StatusNoContent || gotPath != "/api/v1/catalog/classes/00000000-0000-0000-0000-000000000001/enrollments" {
+		t.Fatalf("authorized status=%d path=%s", authorized.Code, gotPath)
+	}
+}
