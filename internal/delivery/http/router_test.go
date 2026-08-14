@@ -125,4 +125,9 @@ func TestCatalogPublicAndEnrollmentProtected(t *testing.T) {
 	if authorized.Code != http.StatusNoContent || gotPath != "/api/v1/catalog/classes/00000000-0000-0000-0000-000000000001/enrollments" {
 		t.Fatalf("authorized status=%d path=%s", authorized.Code, gotPath)
 	}
+	statusMutation := httptest.NewRecorder()
+	router.ServeHTTP(statusMutation, httptest.NewRequest(http.MethodPut, "/api/v1/enrollments/00000000-0000-0000-0000-000000000001/status", nil))
+	if statusMutation.Code != http.StatusNotFound {
+		t.Fatalf("status mutation route=%d, want %d", statusMutation.Code, http.StatusNotFound)
+	}
 }
