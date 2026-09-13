@@ -39,6 +39,7 @@ func TestLoadConfig(t *testing.T) {
 			for _, key := range []string{"JWT_SECRET", "APP_URL", "PORT", "IDENTITY_SERVICE_URL", "ACADEMIC_SERVICE_URL", "BILLING_SERVICE_URL", "REDIS_HOST", "REDIS_PORT", "REDIS_PASSWORD", "REDIS_DB", "RATE_LIMIT_REQUESTS", "RATE_LIMIT_WINDOW_SECONDS", "RATE_LIMIT_PUBLIC_REQUESTS", "RATE_LIMIT_PROTECTED_REQUESTS", "RATE_LIMIT_LOGIN_REQUESTS", "RATE_LIMIT_REGISTER_REQUESTS", "RATE_LIMIT_WEBHOOK_REQUESTS", "RATE_LIMIT_WEBHOOK_WINDOW_SECONDS"} {
 				t.Setenv(key, "")
 			}
+			t.Setenv("JWT_SECRET", "test-jwt-secret")
 			if tt.setup != nil {
 				tt.setup(t)
 			}
@@ -78,6 +79,7 @@ func TestRedisConfiguration(t *testing.T) {
 			for _, key := range []string{"JWT_SECRET", "REDIS_TLS", "REDIS_DB", "REDIS_USERNAME"} {
 				t.Setenv(key, "")
 			}
+			t.Setenv("JWT_SECRET", "test-jwt-secret")
 			if test.setup != nil {
 				test.setup(t)
 			}
@@ -93,6 +95,40 @@ func TestRedisConfiguration(t *testing.T) {
 			}
 			if config.RedisTLS != test.wantTLS || config.RedisDB != test.wantDB || config.RedisUsername != test.wantUsername {
 				t.Fatalf("redis config=%+v", config)
+			}
+		})
+	}
+}
+
+func TestLoadConfigRequiresNonBlankJWTSecret(t *testing.T) {
+	tests := []struct {
+		name    string
+		secret  string
+		wantErr bool
+	}{
+		{name: "missing secret", wantErr: true},
+		{name: "blank secret", secret: " \t ", wantErr: true},
+		{name: "valid secret", secret: "test-jwt-secret"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			viper.Reset()
+			t.Chdir(t.TempDir())
+			t.Setenv("JWT_SECRET", test.secret)
+
+			config, err := LoadConfig()
+			if test.wantErr {
+				if err == nil {
+					t.Fatal("expected JWT_SECRET configuration error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if config.JWTSecret != test.secret {
+				t.Fatalf("JWTSecret=%q, want %q", config.JWTSecret, test.secret)
 			}
 		})
 	}
