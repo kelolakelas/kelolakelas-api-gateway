@@ -87,9 +87,9 @@ func LoadConfig() (Config, error) {
 	config.RedisTLS = parsedRedisTLS
 	config.RedisDB = parsedRedisDB
 
-	// Default fallback values
-	if config.JWTSecret == "" {
-		config.JWTSecret = "supersecretjwtkey123!"
+	// JWT verification must never fall back to a source-defined secret.
+	if strings.TrimSpace(config.JWTSecret) == "" {
+		return Config{}, fmt.Errorf("JWT_SECRET is required")
 	}
 	if config.Port == "" {
 		config.Port = "8000"
