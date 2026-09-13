@@ -12,6 +12,20 @@ import (
 	"github.com/kelolakelas/kelolakelas-api-gateway/internal/delivery/http/handler"
 )
 
+// closeNotifyRecorder provides the deprecated capability ReverseProxy still
+// requests from the underlying Gin response writer during direct router tests.
+type closeNotifyRecorder struct {
+	*httptest.ResponseRecorder
+}
+
+func newCloseNotifyRecorder() *closeNotifyRecorder {
+	return &closeNotifyRecorder{ResponseRecorder: httptest.NewRecorder()}
+}
+
+func (r *closeNotifyRecorder) CloseNotify() <-chan bool {
+	return make(chan bool)
+}
+
 func TestProtectedRoutesProxyToExpectedService(t *testing.T) {
 	services := map[string]*httptest.Server{}
 	for _, name := range []string{"identity", "academic", "billing"} {
@@ -103,7 +117,7 @@ func TestCatalogPublicAndEnrollmentProtected(t *testing.T) {
 		t.Fatal(err)
 	}
 	router := NewRouter(proxy, "secret")
-	public := httptest.NewRecorder()
+	public := newCloseNotifyRecorder()
 	router.ServeHTTP(public, httptest.NewRequest(http.MethodGet, "/api/v1/catalog/classes", nil))
 	if public.Code != http.StatusNoContent || gotPath != "/api/v1/catalog/classes" {
 		t.Fatalf("public status=%d path=%s", public.Code, gotPath)
@@ -118,7 +132,7 @@ func TestCatalogPublicAndEnrollmentProtected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	authorized := httptest.NewRecorder()
+	authorized := newCloseNotifyRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/catalog/classes/00000000-0000-0000-0000-000000000001/enrollments", nil)
 	request.Header.Set("Authorization", "Bearer "+tokenString)
 	router.ServeHTTP(authorized, request)
