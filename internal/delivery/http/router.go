@@ -133,7 +133,6 @@ func NewRouterWithConfig(proxyHandler *handler.ProxyHandler, jwtSecret, appURL s
 			protected.POST("/catalog/classes/:class_id/enrollments", proxyHandler.ProxyToAcademicService())
 
 			// Billing Transaction routes
-			protected.POST("/billing/transactions", proxyHandler.ProxyToBillingService())
 			protected.GET("/billing/transactions", proxyHandler.ProxyToBillingService())
 			protected.GET("/billing/transactions/:id", proxyHandler.ProxyToBillingService())
 		}

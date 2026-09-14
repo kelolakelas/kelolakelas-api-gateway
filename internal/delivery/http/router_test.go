@@ -145,3 +145,27 @@ func TestCatalogPublicAndEnrollmentProtected(t *testing.T) {
 		t.Fatalf("status mutation route=%d, want %d", statusMutation.Code, http.StatusNotFound)
 	}
 }
+
+func TestUserFacingBillingTransactionCreationIsNotRouted(t *testing.T) {
+	proxy, err := handler.NewProxyHandler("http://identity", "http://academic", "http://billing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"user_id": "00000000-0000-0000-0000-000000000001",
+		"exp":     time.Now().Add(time.Hour).Unix(),
+	})
+	tokenString, err := token.SignedString([]byte("secret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/billing/transactions", nil)
+	request.Header.Set("Authorization", "Bearer "+tokenString)
+	recorder := httptest.NewRecorder()
+	NewRouter(proxy, "secret").ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("status=%d, want %d", recorder.Code, http.StatusNotFound)
+	}
+}
