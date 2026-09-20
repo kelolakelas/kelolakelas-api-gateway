@@ -88,6 +88,7 @@ func NewRouterWithConfig(proxyHandler *handler.ProxyHandler, jwtSecret, appURL s
 			protected.POST("/classes", proxyHandler.ProxyToAcademicService())
 			protected.POST("/classes/with-category", proxyHandler.ProxyToAcademicService())
 			protected.DELETE("/classes/:id", proxyHandler.ProxyToAcademicService())
+			protected.PATCH("/classes/:id", proxyHandler.ProxyToAcademicService())
 			protected.PATCH("/classes/:id/published", proxyHandler.ProxyToAcademicService())
 			protected.GET("/students", proxyHandler.ProxyToAcademicService())
 			protected.POST("/students", proxyHandler.ProxyToAcademicService())
