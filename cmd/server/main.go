@@ -3,12 +3,15 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"log/slog"
 	"net"
+	"net/http"
 	"os"
+	"time"
 
 	"github.com/kelolakelas/kelolakelas-api-gateway/internal/config"
-	"github.com/kelolakelas/kelolakelas-api-gateway/internal/delivery/http"
+	gatewayhttp "github.com/kelolakelas/kelolakelas-api-gateway/internal/delivery/http"
 	"github.com/kelolakelas/kelolakelas-api-gateway/internal/delivery/http/handler"
 	"github.com/kelolakelas/kelolakelas-api-gateway/internal/delivery/http/middleware"
 	"github.com/redis/go-redis/v9"
@@ -27,8 +30,17 @@ func main() {
 		return
 	}
 
-	// Initialize proxy handler
-	proxyHandler, err := handler.NewProxyHandler(cfg.IdentityServiceURL, cfg.AcademicServiceURL, cfg.BillingServiceURL)
+	// Initialize proxy handler. Timeouts and the body limit come from
+	// configuration so an operator can raise them for a slow downstream or a
+	// larger payload without a rebuild.
+	proxyHandler, err := handler.NewProxyHandlerWithOptions(
+		cfg.IdentityServiceURL, cfg.AcademicServiceURL, cfg.BillingServiceURL,
+		handler.ProxyOptions{
+			UpstreamTimeout: time.Duration(cfg.ProxyUpstreamTimeout) * time.Second,
+			MaxBodyBytes:    cfg.ProxyMaxBodyBytes,
+			Logger:          logger,
+		},
+	)
 	if err != nil {
 		slog.Error("Failed to initialize proxy handler", "error", err)
 		return
@@ -40,7 +52,7 @@ func main() {
 	}
 
 	// Setup Router
-	r := http.NewRouterWithConfig(proxyHandler, cfg.JWTSecret, cfg.APPURL, redisClient, middleware.RateLimitConfig{
+	r := gatewayhttp.NewRouterWithConfig(proxyHandler, cfg.JWTSecret, cfg.APPURL, redisClient, middleware.RateLimitConfig{
 		Requests:                  cfg.RateLimitRequests,
 		WindowSeconds:             cfg.RateLimitWindow,
 		PublicRequests:            cfg.RateLimitPublic,
@@ -51,9 +63,34 @@ func main() {
 		WebhookWindowSeconds:      cfg.WebhookWindow,
 	}, logger)
 
-	logger.Info("Starting API Gateway", "port", cfg.Port)
-	if err := r.Run("0.0.0.0:" + cfg.Port); err != nil {
+	// http.Server is configured explicitly rather than through gin's Run helper,
+	// which leaves every timeout unbounded: a client that opens a connection and
+	// stops sending would otherwise hold a goroutine and a file descriptor
+	// forever. The write timeout is validated at configuration load to exceed the
+	// upstream timeout, so a slow but healthy downstream is never cut short by
+	// the server itself.
+	server := newHTTPServer(cfg, r)
+
+	logger.Info("Starting API Gateway",
+		"port", cfg.Port,
+		"proxy_upstream_timeout_seconds", cfg.ProxyUpstreamTimeout,
+		"proxy_max_body_bytes", cfg.ProxyMaxBodyBytes,
+		"server_write_timeout_seconds", cfg.ServerWriteTimeout,
+	)
+	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		logger.Error("Failed to start API Gateway", "error", err)
+	}
+}
+
+// newHTTPServer applies the configured timeouts to the gateway's HTTP server.
+func newHTTPServer(cfg config.Config, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              "0.0.0.0:" + cfg.Port,
+		Handler:           handler,
+		ReadHeaderTimeout: time.Duration(cfg.ServerReadHeaderTimeout) * time.Second,
+		ReadTimeout:       time.Duration(cfg.ServerReadTimeout) * time.Second,
+		WriteTimeout:      time.Duration(cfg.ServerWriteTimeout) * time.Second,
+		IdleTimeout:       time.Duration(cfg.ServerIdleTimeout) * time.Second,
 	}
 }
 

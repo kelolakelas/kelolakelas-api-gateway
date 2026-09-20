@@ -3,7 +3,9 @@ package http
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -826,4 +828,339 @@ func TestGatewayRejectsTokensWithoutUsableClaims(t *testing.T) {
 	if publicRecorder.Code != http.StatusNoContent {
 		t.Fatalf("parent catalog status=%d want=%d", publicRecorder.Code, http.StatusNoContent)
 	}
+}
+
+// TestProxyTimeoutReturnsGatewayTimeoutEnvelope proves a downstream that
+// accepts a connection and then stops responding is released at the configured
+// deadline with a parseable JSON envelope instead of being held open.
+func TestProxyTimeoutReturnsGatewayTimeoutEnvelope(t *testing.T) {
+	academic := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The downstream never answers on its own; it only gives up when the
+		// gateway cancels the request, which is exactly the behaviour under test.
+		<-r.Context().Done()
+	}))
+	defer academic.Close()
+
+	proxy, err := handler.NewProxyHandlerWithOptions("http://identity", academic.URL, "http://billing", handler.ProxyOptions{
+		UpstreamTimeout: 200 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"user_id":   "00000000-0000-0000-0000-000000000001",
+		"tenant_id": "00000000-0000-0000-0000-000000000002",
+		"exp":       time.Now().Add(time.Hour).Unix(),
+	})
+	tokenString, err := token.SignedString([]byte("secret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/students", nil)
+	request.Header.Set("Authorization", "Bearer "+tokenString)
+	recorder := newCloseNotifyRecorder()
+
+	start := time.Now()
+	NewRouter(proxy, "secret").ServeHTTP(recorder, request)
+	elapsed := time.Since(start)
+
+	if recorder.Code != http.StatusGatewayTimeout {
+		t.Fatalf("status=%d want=%d body=%s", recorder.Code, http.StatusGatewayTimeout, recorder.Body.String())
+	}
+	if elapsed > 5*time.Second {
+		t.Fatalf("request was not bounded by the configured upstream timeout: %s", elapsed)
+	}
+	assertErrorEnvelope(t, recorder, "Upstream service timed out")
+}
+
+// TestProxyRefusedConnectionReturnsBadGatewayEnvelope proves a downstream that
+// is not listening is reported as 502 with the standard envelope, and that the
+// response never discloses the internal address it tried to reach.
+func TestProxyRefusedConnectionReturnsBadGatewayEnvelope(t *testing.T) {
+	dead := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	deadURL := dead.URL
+	dead.Close()
+
+	proxy, err := handler.NewProxyHandlerWithOptions("http://identity", deadURL, "http://billing", handler.ProxyOptions{
+		UpstreamTimeout: 5 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"user_id":   "00000000-0000-0000-0000-000000000001",
+		"tenant_id": "00000000-0000-0000-0000-000000000002",
+		"exp":       time.Now().Add(time.Hour).Unix(),
+	})
+	tokenString, err := token.SignedString([]byte("secret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/students", nil)
+	request.Header.Set("Authorization", "Bearer "+tokenString)
+	recorder := newCloseNotifyRecorder()
+	NewRouter(proxy, "secret").ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadGateway {
+		t.Fatalf("status=%d want=%d body=%s", recorder.Code, http.StatusBadGateway, recorder.Body.String())
+	}
+	assertErrorEnvelope(t, recorder, "Upstream service is unavailable")
+
+	host := strings.TrimPrefix(deadURL, "http://")
+	if strings.Contains(recorder.Body.String(), host) {
+		t.Fatalf("error envelope leaks the internal address: %s", recorder.Body.String())
+	}
+}
+
+// TestOversizedRequestBodyIsRejectedBeforeProxying proves the configured body
+// limit is enforced at the gateway: the 413 is returned as JSON and the
+// downstream never receives a partial request.
+func TestOversizedRequestBodyIsRejectedBeforeProxying(t *testing.T) {
+	var reached int
+	identity := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reached++
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer identity.Close()
+
+	const maxBodyBytes = 1024
+	proxy, err := handler.NewProxyHandlerWithOptions(identity.URL, "http://academic", "http://billing", handler.ProxyOptions{
+		UpstreamTimeout: 5 * time.Second,
+		MaxBodyBytes:    maxBodyBytes,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	router := NewRouter(proxy, "secret")
+
+	// A payload slightly over the limit, of the shape the registration form
+	// sends, must be rejected by the gateway itself.
+	payload := `{"email":"tenant@example.com","address":"` + strings.Repeat("a", maxBodyBytes) + `"}`
+	recorder := newCloseNotifyRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/tenants/register", strings.NewReader(payload))
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status=%d want=%d body=%s", recorder.Code, http.StatusRequestEntityTooLarge, recorder.Body.String())
+	}
+	assertErrorEnvelope(t, recorder, middleware.BodyTooLargeMessage)
+	if reached != 0 {
+		t.Fatalf("oversized request reached the identity service %d times", reached)
+	}
+
+	// A payload under the limit must still be proxied, so the limit cannot be
+	// satisfied by rejecting everything.
+	accepted := newCloseNotifyRecorder()
+	acceptedRequest := httptest.NewRequest(http.MethodPost, "/api/v1/tenants/register", strings.NewReader(`{"email":"tenant@example.com"}`))
+	acceptedRequest.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(accepted, acceptedRequest)
+	if accepted.Code != http.StatusNoContent {
+		t.Fatalf("in-limit status=%d want=%d body=%s", accepted.Code, http.StatusNoContent, accepted.Body.String())
+	}
+}
+
+// TestDuitkuWebhookBodyWithinLimitIsProxied proves the configured limit leaves
+// the largest current payload untouched: the Duitku callback is a small form
+// body, so it must pass through the body limit and reach the billing service.
+func TestDuitkuWebhookBodyWithinLimitIsProxied(t *testing.T) {
+	var received int
+	billing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		received++
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer billing.Close()
+
+	proxy, err := handler.NewProxyHandlerWithOptions("http://identity", "http://academic", billing.URL, handler.ProxyOptions{
+		UpstreamTimeout: 5 * time.Second,
+		MaxBodyBytes:    middleware.DefaultMaxBodyBytes,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	callback := "merchantCode=D1234&amount=150000&merchantOrderId=KK-1&productDetail=Enrollment" +
+		"&additionalParam=&paymentCode=VC&resultCode=00&merchantUserId=user-1&reference=ref-1&signature=abc123"
+	recorder := newCloseNotifyRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/billing/webhooks/duitku", strings.NewReader(callback))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	NewRouter(proxy, "secret").ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if received != 1 {
+		t.Fatalf("billing service received the callback %d times", received)
+	}
+}
+
+// TestHealthAndSwaggerUnaffectedByProxyResilience proves the routes that are not
+// proxied keep working now that the proxy has its own deadline and error path.
+func TestHealthAndSwaggerUnaffectedByProxyResilience(t *testing.T) {
+	proxy, err := handler.NewProxyHandlerWithOptions("http://identity", "http://academic", "http://billing", handler.ProxyOptions{
+		UpstreamTimeout: 2 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	router := NewRouter(proxy, "secret")
+
+	health := httptest.NewRecorder()
+	router.ServeHTTP(health, httptest.NewRequest(http.MethodGet, "/health", nil))
+	if health.Code != http.StatusOK || !strings.Contains(health.Body.String(), `"service":"api-gateway"`) {
+		t.Fatalf("health status=%d body=%s", health.Code, health.Body.String())
+	}
+
+	swagger := httptest.NewRecorder()
+	router.ServeHTTP(swagger, httptest.NewRequest(http.MethodGet, "/swagger/index.html", nil))
+	if swagger.Code != http.StatusOK {
+		t.Fatalf("swagger status=%d", swagger.Code)
+	}
+}
+
+// TestPreflightRequestIsNotBlockedByProxyResilience proves an OPTIONS preflight,
+// which carries no body and must not be forwarded, still answers from CORS.
+func TestPreflightRequestIsNotBlockedByProxyResilience(t *testing.T) {
+	proxy, err := handler.NewProxyHandlerWithOptions("http://identity", "http://academic", "http://billing", handler.ProxyOptions{
+		UpstreamTimeout: 2 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	router := NewRouterWithConfig(proxy, "secret", "https://frontend.example.com", nil, middleware.RateLimitConfig{}, slog.Default())
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodOptions, "/api/v1/auth/login", nil)
+	request.Header.Set("Origin", "https://frontend.example.com")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("preflight status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if got := recorder.Header().Get("Access-Control-Allow-Origin"); got != "https://frontend.example.com" {
+		t.Fatalf("allow-origin=%q", got)
+	}
+}
+
+// assertErrorEnvelope checks the documented failure contract: a status field
+// set to error, a message, and a JSON data member that is explicitly null.
+func assertErrorEnvelope(t *testing.T, recorder *closeNotifyRecorder, wantMessage string) {
+	t.Helper()
+	if contentType := recorder.Header().Get("Content-Type"); contentType != "application/json; charset=utf-8" {
+		t.Fatalf("content-type=%q body=%s", contentType, recorder.Body.String())
+	}
+	var envelope struct {
+		Status  string `json:"status"`
+		Message string `json:"message"`
+		Data    any    `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("error body is not JSON: %v (%s)", err, recorder.Body.String())
+	}
+	if envelope.Status != "error" {
+		t.Fatalf("status field=%q body=%s", envelope.Status, recorder.Body.String())
+	}
+	if envelope.Message != wantMessage {
+		t.Fatalf("message=%q want=%q", envelope.Message, wantMessage)
+	}
+	if envelope.Data != nil {
+		t.Fatalf("data=%v want null", envelope.Data)
+	}
+}
+
+// failingConnectionListener is a downstream that accepts the request, sends a
+// response header promising more body than it delivers, then closes the
+// connection. Go's ReverseProxy can only abort that exchange (issue 23643), so
+// this proves the gateway aborts without appending a second response or panicking
+// out of the handler.
+type failingConnectionListener struct {
+	listener net.Listener
+	done     chan struct{}
+}
+
+func newFailingConnectionListener(t *testing.T) *failingConnectionListener {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	failing := &failingConnectionListener{listener: listener, done: make(chan struct{})}
+	go func() {
+		defer close(failing.done)
+		connection, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		defer connection.Close()
+		// Consume the request headers so the client is not blocked writing them.
+		buffer := make([]byte, 4096)
+		_ = connection.SetReadDeadline(time.Now().Add(5 * time.Second))
+		_, _ = connection.Read(buffer)
+
+		// Announce a longer body than the one actually sent, then disconnect.
+		_, _ = connection.Write([]byte("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 500\r\n\r\n{\"partial\":"))
+	}()
+	return failing
+}
+
+func (f *failingConnectionListener) URL() string {
+	return "http://" + f.listener.Addr().String()
+}
+
+func TestDownstreamClosingConnectionAfterHeadersDoesNotAppendAnEnvelope(t *testing.T) {
+	downstream := newFailingConnectionListener(t)
+	defer downstream.listener.Close()
+
+	proxy, err := handler.NewProxyHandlerWithOptions("http://identity", downstream.URL(), "http://billing", handler.ProxyOptions{
+		UpstreamTimeout: 3 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gateway := httptest.NewServer(NewRouter(proxy, "secret"))
+	defer gateway.Close()
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"user_id":   "00000000-0000-0000-0000-000000000001",
+		"tenant_id": "00000000-0000-0000-0000-000000000002",
+		"exp":       time.Now().Add(time.Hour).Unix(),
+	})
+	tokenString, err := token.SignedString([]byte("secret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	request, err := http.NewRequest(http.MethodGet, gateway.URL+"/api/v1/students", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Authorization", "Bearer "+tokenString)
+
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+
+	// The status is whatever the downstream announced; the gateway must not
+	// replace it, because the header already reached the client.
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d want=%d", response.StatusCode, http.StatusOK)
+	}
+	body, _ := io.ReadAll(response.Body)
+
+	// The essential guarantee: no second response is appended after the partial
+	// one. A gateway envelope here would corrupt the stream for any client.
+	if strings.Contains(string(body), `"message"`) || strings.Contains(string(body), `"status":"error"`) {
+		t.Fatalf("gateway appended an error envelope to a partial response: %q", body)
+	}
+	if !strings.Contains(string(body), `{"partial":`) {
+		t.Fatalf("partial downstream body was not forwarded: %q", body)
+	}
+
+	<-downstream.done
 }
