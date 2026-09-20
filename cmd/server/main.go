@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"log/slog"
 	"net"
+	"os"
 
 	"github.com/kelolakelas/kelolakelas-api-gateway/internal/config"
 	"github.com/kelolakelas/kelolakelas-api-gateway/internal/delivery/http"
@@ -14,6 +15,11 @@ import (
 )
 
 func main() {
+	// Initialize JSON logging so the structured gateway access log is emitted
+	// as JSON, consistent with the downstream services.
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	slog.SetDefault(logger)
+
 	// Load environment variables
 	cfg, err := config.LoadConfig()
 	if err != nil {
@@ -28,7 +34,6 @@ func main() {
 		return
 	}
 
-	logger := slog.Default()
 	redisClient := redis.NewClient(buildRedisOptions(cfg))
 	if err := redisClient.Ping(context.Background()).Err(); err != nil {
 		logger.Warn("Redis is unavailable; rate limiter is running in fail-open mode", "error", err)

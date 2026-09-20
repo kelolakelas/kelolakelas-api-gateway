@@ -21,6 +21,10 @@ func NewRouterWithRateLimit(proxyHandler *handler.ProxyHandler, jwtSecret string
 func NewRouterWithConfig(proxyHandler *handler.ProxyHandler, jwtSecret, appURL string, redisClient middleware.RedisClient, rateLimitConfig middleware.RateLimitConfig, logger *slog.Logger) *gin.Engine {
 	r := gin.New()
 	_ = r.SetTrustedProxies(nil)
+	// RequestIDMiddleware runs first so every response and log line, including
+	// rejected or rate-limited requests, carries a correlation identifier.
+	r.Use(middleware.RequestIDMiddleware())
+	r.Use(middleware.AccessLogMiddleware(logger))
 	r.Use(gin.Recovery())
 	r.Use(middleware.CORSMiddleware(appURL))
 	r.Use(middleware.RateLimitMiddleware(redisClient, rateLimitConfig, logger))
