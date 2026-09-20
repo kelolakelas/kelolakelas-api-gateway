@@ -134,6 +134,7 @@ func NewRouterWithConfig(proxyHandler *handler.ProxyHandler, jwtSecret, appURL s
 			protected.GET("/enrollments", proxyHandler.ProxyToAcademicService())
 			protected.GET("/enrollments/:id", proxyHandler.ProxyToAcademicService())
 			protected.PATCH("/enrollments/:id/schedule", proxyHandler.ProxyToAcademicService())
+			protected.POST("/enrollments/:id/cancel", proxyHandler.ProxyToAcademicService())
 			protected.POST("/tenants/:tenant_id/enrollments", proxyHandler.ProxyToAcademicService())
 			protected.POST("/catalog/classes/:class_id/enrollments", proxyHandler.ProxyToAcademicService())
 

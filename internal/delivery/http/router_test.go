@@ -58,9 +58,16 @@ func TestProtectedRoutesProxyToExpectedService(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tests := []struct{ name, path, service string }{
+	tests := []struct {
+		name, path, service string
+		method              string
+	}{
 		{name: "student", path: "/api/v1/students", service: "academic"},
 		{name: "enrollment", path: "/api/v1/enrollments", service: "academic"},
+		// Cancellation is an action on an enrollment, not a status write, so it is
+		// exposed as POST and must still reach the academic service. Other methods on
+		// this path stay unrouted and are covered by the cancellation test below.
+		{name: "enrollment cancel", path: "/api/v1/enrollments/00000000-0000-0000-0000-000000000003/cancel", service: "academic", method: http.MethodPost},
 		{name: "session", path: "/api/v1/sessions", service: "academic"},
 		{name: "session attendees", path: "/api/v1/sessions/00000000-0000-0000-0000-000000000003/attendees", service: "academic"},
 		{name: "tutor", path: "/api/v1/tutors", service: "identity"},
@@ -70,7 +77,11 @@ func TestProtectedRoutesProxyToExpectedService(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			req, err := http.NewRequest(http.MethodGet, gateway.URL+test.path, nil)
+			method := test.method
+			if method == "" {
+				method = http.MethodGet
+			}
+			req, err := http.NewRequest(method, gateway.URL+test.path, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -228,6 +239,60 @@ func TestCatalogPublicAndEnrollmentProtected(t *testing.T) {
 	if authorized.Code != http.StatusNoContent || gotPath != "/api/v1/catalog/classes/00000000-0000-0000-0000-000000000001/enrollments" {
 		t.Fatalf("authorized status=%d path=%s", authorized.Code, gotPath)
 	}
+	statusMutation := httptest.NewRecorder()
+	router.ServeHTTP(statusMutation, httptest.NewRequest(http.MethodPut, "/api/v1/enrollments/00000000-0000-0000-0000-000000000001/status", nil))
+	if statusMutation.Code != http.StatusNotFound {
+		t.Fatalf("status mutation route=%d, want %d", statusMutation.Code, http.StatusNotFound)
+	}
+}
+
+// TestEnrollmentCancellationRouteIsProtectedParentProxy proves that a parent can
+// reach the cancellation endpoint through the gateway as a POST on the enrollment
+// resource, that the path and method reach the academic service unchanged, and that
+// the route is not reachable without a token. The gateway must expose a distinct
+// action route here: a generic status mutation on the same resource is deliberately
+// not routed, which the assertion at the end keeps true.
+func TestEnrollmentCancellationRouteIsProtectedParentProxy(t *testing.T) {
+	var gotPath, gotMethod string
+	academic := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath, gotMethod = r.URL.Path, r.Method
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer academic.Close()
+	proxy, err := handler.NewProxyHandler("http://identity", academic.URL, "http://billing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	router := NewRouter(proxy, "secret")
+	const cancelPath = "/api/v1/enrollments/00000000-0000-0000-0000-000000000001/cancel"
+
+	unauthenticated := httptest.NewRecorder()
+	router.ServeHTTP(unauthenticated, httptest.NewRequest(http.MethodPost, cancelPath, nil))
+	if unauthenticated.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated cancel status=%d, want %d", unauthenticated.Code, http.StatusUnauthorized)
+	}
+	if gotPath != "" {
+		t.Fatalf("unauthenticated request reached academic at %q", gotPath)
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"user_id": "00000000-0000-0000-0000-000000000001", "is_parent": true, "exp": time.Now().Add(time.Hour).Unix()})
+	tokenString, err := token.SignedString([]byte("secret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	authorized := newCloseNotifyRecorder()
+	request := httptest.NewRequest(http.MethodPost, cancelPath, nil)
+	request.Header.Set("Authorization", "Bearer "+tokenString)
+	router.ServeHTTP(authorized, request)
+	if authorized.Code != http.StatusNoContent {
+		t.Fatalf("authorized cancel status=%d, want %d", authorized.Code, http.StatusNoContent)
+	}
+	if gotPath != cancelPath || gotMethod != http.MethodPost {
+		t.Fatalf("proxied method/path=%s %s, want POST %s", gotMethod, gotPath, cancelPath)
+	}
+
+	// Cancellation is an action, not a status write: the enrollment resource must not
+	// accept an arbitrary status mutation from the gateway.
 	statusMutation := httptest.NewRecorder()
 	router.ServeHTTP(statusMutation, httptest.NewRequest(http.MethodPut, "/api/v1/enrollments/00000000-0000-0000-0000-000000000001/status", nil))
 	if statusMutation.Code != http.StatusNotFound {
