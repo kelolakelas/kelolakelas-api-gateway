@@ -63,13 +63,6 @@ func (h *ProxyHandler) ProxyToAcademicService() gin.HandlerFunc {
 
 	return func(c *gin.Context) {
 		c.Set(middleware.ProxyTargetContextKey, "academic-service")
-
-		// Set tenant_id header based on JWT context value
-		tenantID := c.GetString("tenant_id")
-		if tenantID != "" {
-			c.Request.Header.Set("X-Tenant-ID", tenantID)
-		}
-
 		proxy.ServeHTTP(c.Writer, c.Request)
 	}
 }
@@ -85,12 +78,6 @@ func (h *ProxyHandler) ProxyToBillingService() gin.HandlerFunc {
 
 	return func(c *gin.Context) {
 		c.Set(middleware.ProxyTargetContextKey, "billing-service")
-
-		tenantID := c.GetString("tenant_id")
-		if tenantID != "" {
-			c.Request.Header.Set("X-Tenant-ID", tenantID)
-		}
-
 		proxy.ServeHTTP(c.Writer, c.Request)
 	}
 }
