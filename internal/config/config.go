@@ -12,6 +12,33 @@ import (
 	"github.com/spf13/viper"
 )
 
+// Defaults for the proxy and server timeouts. They are exported as a single
+// block so the documentation and the environment example quote one source.
+const (
+	// DefaultProxyUpstreamTimeout bounds one proxied request end to end. It is
+	// generous enough for the slowest legitimate downstream call observed today
+	// (tenant location geocoding) while still releasing a caller when a
+	// downstream service stops responding.
+	DefaultProxyUpstreamTimeout = 30
+	// DefaultProxyMaxBodyBytes bounds a request body. The largest bodies the
+	// platform accepts are the Duitku callback payload and the registration and
+	// invitation forms, all of which are a few kilobytes, so 1 MiB leaves room
+	// to grow without letting a caller stream an unbounded body through the
+	// gateway. It matches middleware.DefaultMaxBodyBytes.
+	DefaultProxyMaxBodyBytes int64 = 1 << 20
+	// DefaultServerReadHeaderTimeout bounds how long a client may take to send
+	// request headers, which is the slowloris window a public gateway must close.
+	DefaultServerReadHeaderTimeout = 5
+	// DefaultServerReadTimeout bounds reading the request including its body.
+	DefaultServerReadTimeout = 30
+	// DefaultServerWriteTimeout must exceed the upstream timeout, otherwise the
+	// server would cut a response the proxy was still waiting for.
+	DefaultServerWriteTimeout = 60
+	// DefaultServerIdleTimeout bounds how long an idle keep-alive connection is
+	// reused.
+	DefaultServerIdleTimeout = 120
+)
+
 type Config struct {
 	JWTSecret          string `mapstructure:"JWT_SECRET"`
 	APPURL             string `mapstructure:"APP_URL"`
@@ -33,6 +60,17 @@ type Config struct {
 	RateLimitRegister  int    `mapstructure:"RATE_LIMIT_REGISTER_REQUESTS"`
 	RateLimitWebhook   int    `mapstructure:"RATE_LIMIT_WEBHOOK_REQUESTS"`
 	WebhookWindow      int    `mapstructure:"RATE_LIMIT_WEBHOOK_WINDOW_SECONDS"`
+
+	// ProxyUpstreamTimeout bounds a single proxied request in seconds.
+	ProxyUpstreamTimeout int `mapstructure:"PROXY_UPSTREAM_TIMEOUT_SECONDS"`
+	// ProxyMaxBodyBytes bounds an accepted request body in bytes.
+	ProxyMaxBodyBytes int64 `mapstructure:"PROXY_MAX_BODY_BYTES"`
+	// ServerReadHeaderTimeout, ServerReadTimeout, ServerWriteTimeout and
+	// ServerIdleTimeout configure the HTTP server the gateway runs in seconds.
+	ServerReadHeaderTimeout int `mapstructure:"SERVER_READ_HEADER_TIMEOUT_SECONDS"`
+	ServerReadTimeout       int `mapstructure:"SERVER_READ_TIMEOUT_SECONDS"`
+	ServerWriteTimeout      int `mapstructure:"SERVER_WRITE_TIMEOUT_SECONDS"`
+	ServerIdleTimeout       int `mapstructure:"SERVER_IDLE_TIMEOUT_SECONDS"`
 }
 
 func LoadConfig() (Config, error) {
@@ -57,6 +95,8 @@ func LoadConfig() (Config, error) {
 		"RATE_LIMIT_WINDOW_SECONDS", "RATE_LIMIT_PUBLIC_REQUESTS", "RATE_LIMIT_PROTECTED_REQUESTS",
 		"RATE_LIMIT_LOGIN_REQUESTS", "RATE_LIMIT_REGISTER_REQUESTS", "RATE_LIMIT_WEBHOOK_REQUESTS",
 		"RATE_LIMIT_WEBHOOK_WINDOW_SECONDS",
+		"PROXY_UPSTREAM_TIMEOUT_SECONDS", "PROXY_MAX_BODY_BYTES", "SERVER_READ_HEADER_TIMEOUT_SECONDS",
+		"SERVER_READ_TIMEOUT_SECONDS", "SERVER_WRITE_TIMEOUT_SECONDS", "SERVER_IDLE_TIMEOUT_SECONDS",
 	} {
 		if err := viper.BindEnv(key); err != nil {
 			return Config{}, err
@@ -142,6 +182,33 @@ func LoadConfig() (Config, error) {
 	}
 	if config.WebhookWindow <= 0 {
 		config.WebhookWindow = config.RateLimitWindow
+	}
+	if config.ProxyUpstreamTimeout <= 0 {
+		config.ProxyUpstreamTimeout = DefaultProxyUpstreamTimeout
+	}
+	if config.ProxyMaxBodyBytes <= 0 {
+		config.ProxyMaxBodyBytes = DefaultProxyMaxBodyBytes
+	}
+	if config.ServerReadHeaderTimeout <= 0 {
+		config.ServerReadHeaderTimeout = DefaultServerReadHeaderTimeout
+	}
+	if config.ServerReadTimeout <= 0 {
+		config.ServerReadTimeout = DefaultServerReadTimeout
+	}
+	if config.ServerWriteTimeout <= 0 {
+		config.ServerWriteTimeout = DefaultServerWriteTimeout
+	}
+	if config.ServerIdleTimeout <= 0 {
+		config.ServerIdleTimeout = DefaultServerIdleTimeout
+	}
+
+	// A write timeout shorter than the upstream timeout would cut a response the
+	// proxy is still waiting for, turning a slow downstream into a transport
+	// error instead of the 504 the proxy is meant to return.
+	if config.ServerWriteTimeout <= config.ProxyUpstreamTimeout {
+		return Config{}, fmt.Errorf(
+			"SERVER_WRITE_TIMEOUT_SECONDS (%d) must be greater than PROXY_UPSTREAM_TIMEOUT_SECONDS (%d)",
+			config.ServerWriteTimeout, config.ProxyUpstreamTimeout)
 	}
 
 	return config, nil
