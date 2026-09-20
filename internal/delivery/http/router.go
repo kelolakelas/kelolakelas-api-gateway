@@ -24,6 +24,11 @@ func NewRouterWithConfig(proxyHandler *handler.ProxyHandler, jwtSecret, appURL s
 	// RequestIDMiddleware runs first so every response and log line, including
 	// rejected or rate-limited requests, carries a correlation identifier.
 	r.Use(middleware.RequestIDMiddleware())
+	// Context headers from the client are removed before any route handling, so
+	// no middleware or proxy can observe a caller-supplied tenant or service
+	// credential. The protected group repopulates the tenant header from the
+	// verified claim.
+	r.Use(middleware.StripUntrustedContextHeaders())
 	r.Use(middleware.AccessLogMiddleware(logger))
 	r.Use(gin.Recovery())
 	r.Use(middleware.CORSMiddleware(appURL))
