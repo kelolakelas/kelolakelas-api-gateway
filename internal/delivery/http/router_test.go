@@ -86,6 +86,91 @@ func TestProtectedRoutesProxyToExpectedService(t *testing.T) {
 	}
 }
 
+// TestClassUpdateRouteIsProtectedAcademicProxy proves the tenant-facing class
+// update endpoint is exposed through the gateway and forwarded to the academic
+// service with the client path and method preserved. The gateway must not
+// bypass authentication: an unauthenticated request is rejected before proxying.
+func TestClassUpdateRouteIsProtectedAcademicProxy(t *testing.T) {
+	var gotPath, gotMethod string
+	academic := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath, gotMethod = r.URL.Path, r.Method
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer academic.Close()
+
+	proxy, err := handler.NewProxyHandler("http://identity", academic.URL, "http://billing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	router := NewRouter(proxy, "secret")
+
+	unauthenticated := httptest.NewRecorder()
+	router.ServeHTTP(unauthenticated, httptest.NewRequest(http.MethodPatch, "/api/v1/classes/00000000-0000-0000-0000-000000000001", strings.NewReader(`{"name":"X"}`)))
+	if unauthenticated.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated status=%d want=%d", unauthenticated.Code, http.StatusUnauthorized)
+	}
+	if gotPath != "" {
+		t.Fatalf("unauthenticated request must not reach the academic service, got path %s", gotPath)
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"user_id":   "00000000-0000-0000-0000-000000000001",
+		"tenant_id": "00000000-0000-0000-0000-000000000002",
+		"exp":       time.Now().Add(time.Hour).Unix(),
+	})
+	tokenString, err := token.SignedString([]byte("secret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	authorized := newCloseNotifyRecorder()
+	request := httptest.NewRequest(http.MethodPatch, "/api/v1/classes/00000000-0000-0000-0000-000000000001", strings.NewReader(`{"name":"X"}`))
+	request.Header.Set("Authorization", "Bearer "+tokenString)
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(authorized, request)
+
+	if authorized.Code != http.StatusNoContent {
+		t.Fatalf("authorized status=%d body=%s", authorized.Code, authorized.Body.String())
+	}
+	if gotPath != "/api/v1/classes/00000000-0000-0000-0000-000000000001" || gotMethod != http.MethodPatch {
+		t.Fatalf("proxied method=%s path=%s", gotMethod, gotPath)
+	}
+}
+
+// TestClassPublicationRouteStillWorks guards against the new PATCH /classes/:id
+// route shadowing the pre-existing publication toggle.
+func TestClassPublicationRouteStillWorks(t *testing.T) {
+	var gotPath string
+	academic := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer academic.Close()
+
+	proxy, err := handler.NewProxyHandler("http://identity", academic.URL, "http://billing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"user_id":   "00000000-0000-0000-0000-000000000001",
+		"tenant_id": "00000000-0000-0000-0000-000000000002",
+		"exp":       time.Now().Add(time.Hour).Unix(),
+	})
+	tokenString, err := token.SignedString([]byte("secret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	request := httptest.NewRequest(http.MethodPatch, "/api/v1/classes/00000000-0000-0000-0000-000000000001/published", strings.NewReader(`{"is_published":true}`))
+	request.Header.Set("Authorization", "Bearer "+tokenString)
+	recorder := newCloseNotifyRecorder()
+	NewRouter(proxy, "secret").ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusNoContent || gotPath != "/api/v1/classes/00000000-0000-0000-0000-000000000001/published" {
+		t.Fatalf("status=%d path=%s", recorder.Code, gotPath)
+	}
+}
+
 func TestHealthEndpoint(t *testing.T) {
 	proxy, err := handler.NewProxyHandler("http://identity", "http://academic", "http://billing")
 	if err != nil {
