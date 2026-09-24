@@ -27,7 +27,7 @@ func main() {
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		slog.Error("Failed to load configuration", "error", err)
-		return
+		os.Exit(1)
 	}
 
 	// Initialize proxy handler. Timeouts and the body limit come from
@@ -52,7 +52,7 @@ func main() {
 	}
 
 	// Setup Router
-	r := gatewayhttp.NewRouterWithConfig(proxyHandler, cfg.JWTSecret, cfg.APPURL, redisClient, middleware.RateLimitConfig{
+	r, err := gatewayhttp.NewRouterWithClientIPTrust(proxyHandler, cfg.JWTSecret, cfg.APPURL, redisClient, middleware.RateLimitConfig{
 		Requests:                  cfg.RateLimitRequests,
 		WindowSeconds:             cfg.RateLimitWindow,
 		PublicRequests:            cfg.RateLimitPublic,
@@ -61,7 +61,14 @@ func main() {
 		SensitiveRegisterRequests: cfg.RateLimitRegister,
 		WebhookRequests:           cfg.RateLimitWebhook,
 		WebhookWindowSeconds:      cfg.WebhookWindow,
-	}, logger)
+	}, logger, gatewayhttp.ClientIPTrust{
+		TrustedProxies: cfg.TrustedProxies,
+		Header:         cfg.TrustedClientIPHeader,
+	})
+	if err != nil {
+		slog.Error("Failed to configure client IP trust", "error", err)
+		os.Exit(1)
+	}
 
 	// http.Server is configured explicitly rather than through gin's Run helper,
 	// which leaves every timeout unbounded: a client that opens a connection and
@@ -76,6 +83,8 @@ func main() {
 		"proxy_upstream_timeout_seconds", cfg.ProxyUpstreamTimeout,
 		"proxy_max_body_bytes", cfg.ProxyMaxBodyBytes,
 		"server_write_timeout_seconds", cfg.ServerWriteTimeout,
+		"trusted_proxy_count", len(cfg.TrustedProxies),
+		"trusted_client_ip_header", cfg.TrustedClientIPHeader,
 	)
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		logger.Error("Failed to start API Gateway", "error", err)

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/spf13/viper"
@@ -249,5 +250,77 @@ func TestServerWriteTimeoutMustExceedUpstreamTimeout(t *testing.T) {
 func TestProxyMaxBodyBytesAcceptsLargeCallbackPayloads(t *testing.T) {
 	if DefaultProxyMaxBodyBytes < 64*1024 {
 		t.Fatalf("default body limit %d bytes is too small for current payloads", DefaultProxyMaxBodyBytes)
+	}
+}
+
+// KEL-62: without TRUSTED_PROXY_CIDRS and TRUSTED_CLIENT_IP_HEADER no proxy is
+// trusted, which keeps the client IP the socket address as before.
+func TestClientIPTrustDefaultsToNoProxy(t *testing.T) {
+	viper.Reset()
+	t.Chdir(t.TempDir())
+	t.Setenv("JWT_SECRET", "test-jwt-secret")
+	t.Setenv("TRUSTED_PROXY_CIDRS", "")
+	t.Setenv("TRUSTED_CLIENT_IP_HEADER", "")
+
+	config, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(config.TrustedProxies) != 0 || config.TrustedClientIPHeader != "" {
+		t.Fatalf("default trust proxies=%v header=%q, want none", config.TrustedProxies, config.TrustedClientIPHeader)
+	}
+}
+
+func TestClientIPTrustIsParsedAndNormalised(t *testing.T) {
+	viper.Reset()
+	t.Chdir(t.TempDir())
+	t.Setenv("JWT_SECRET", "test-jwt-secret")
+	t.Setenv("TRUSTED_PROXY_CIDRS", " 10.20.0.0/16, 172.16.5.9 ,,2001:db8:1::/48, ::ffff:192.0.2.1, 10.30.1.7/24")
+	t.Setenv("TRUSTED_CLIENT_IP_HEADER", " x-forwarded-for ")
+
+	config, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"10.20.0.0/16", "172.16.5.9/32", "2001:db8:1::/48", "192.0.2.1/32", "10.30.1.0/24"}
+	if strings.Join(config.TrustedProxies, ",") != strings.Join(want, ",") {
+		t.Fatalf("trusted proxies=%v want %v", config.TrustedProxies, want)
+	}
+	if config.TrustedClientIPHeader != "X-Forwarded-For" {
+		t.Fatalf("header=%q want X-Forwarded-For", config.TrustedClientIPHeader)
+	}
+}
+
+// AC: an invalid trust configuration stops the gateway at startup with a message
+// naming the variable and the offending value.
+func TestClientIPTrustRejectsInvalidConfiguration(t *testing.T) {
+	for _, test := range []struct {
+		name, cidrs, header, wantMessage string
+	}{
+		{"malformed range", "10.20.0.0/99", "X-Forwarded-For", `TRUSTED_PROXY_CIDRS entry "10.20.0.0/99" is not a valid IP address or CIDR range`},
+		{"hostname", "web.internal", "X-Forwarded-For", `TRUSTED_PROXY_CIDRS entry "web.internal" is not a valid IP address or CIDR range`},
+		{"one bad entry among good ones", "10.20.0.0/16, 300.1.1.1", "X-Forwarded-For", `"300.1.1.1" is not a valid`},
+		{"zoned address", "fe80::1%eth0", "X-Forwarded-For", `"fe80::1%eth0" is not a valid`},
+		{"trust every IPv4 peer", "0.0.0.0/0", "X-Forwarded-For", `"0.0.0.0/0" trusts every address`},
+		{"trust every IPv6 peer", "::/0", "X-Forwarded-For", `"::/0" trusts every address`},
+		{"header without proxies", "", "X-Forwarded-For", "TRUSTED_CLIENT_IP_HEADER is set but TRUSTED_PROXY_CIDRS is empty"},
+		{"proxies without header", "10.20.0.0/16", "", "TRUSTED_PROXY_CIDRS is set but TRUSTED_CLIENT_IP_HEADER is empty"},
+		{"invalid header name", "10.20.0.0/16", "X Forwarded For", `TRUSTED_CLIENT_IP_HEADER "X Forwarded For" is not a valid HTTP header name`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			viper.Reset()
+			t.Chdir(t.TempDir())
+			t.Setenv("JWT_SECRET", "test-jwt-secret")
+			t.Setenv("TRUSTED_PROXY_CIDRS", test.cidrs)
+			t.Setenv("TRUSTED_CLIENT_IP_HEADER", test.header)
+
+			_, err := LoadConfig()
+			if err == nil {
+				t.Fatalf("configuration cidrs=%q header=%q was accepted", test.cidrs, test.header)
+			}
+			if !strings.Contains(err.Error(), test.wantMessage) {
+				t.Fatalf("error %q does not contain %q", err, test.wantMessage)
+			}
+		})
 	}
 }
