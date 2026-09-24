@@ -1,6 +1,7 @@
 package http
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -19,8 +20,37 @@ func NewRouterWithRateLimit(proxyHandler *handler.ProxyHandler, jwtSecret string
 }
 
 func NewRouterWithConfig(proxyHandler *handler.ProxyHandler, jwtSecret, appURL string, redisClient middleware.RedisClient, rateLimitConfig middleware.RateLimitConfig, logger *slog.Logger) *gin.Engine {
+	// The zero ClientIPTrust trusts no proxy, which cannot fail.
+	r, _ := NewRouterWithClientIPTrust(proxyHandler, jwtSecret, appURL, redisClient, rateLimitConfig, logger, ClientIPTrust{})
+	return r
+}
+
+// ClientIPTrust decides where the gateway reads the client IP from (KEL-62).
+//
+// The client IP keys the rate limiter and is recorded by the access log, so both
+// always read it from the same place: gin's ClientIP, configured here once.
+//
+// With the zero value no proxy is trusted and the client IP is the socket
+// address of the peer, whatever headers the request carries. With TrustedProxies
+// and Header set, a request whose socket peer lies inside TrustedProxies may name
+// the client in Header. The header is read right to left and the first address
+// that is not itself a trusted proxy wins, so a caller cannot prepend a forged
+// address in front of a trusted chain. An empty header, a value that is not an
+// address (including an IPv6 address with a zone), or a peer outside
+// TrustedProxies falls back to the socket address.
+type ClientIPTrust struct {
+	TrustedProxies []string
+	Header         string
+}
+
+// NewRouterWithClientIPTrust builds the gateway router with an explicit client-IP
+// trust policy. It returns an error when a trusted proxy entry is not an IP
+// address or CIDR range; configuration loading validates the same rules first.
+func NewRouterWithClientIPTrust(proxyHandler *handler.ProxyHandler, jwtSecret, appURL string, redisClient middleware.RedisClient, rateLimitConfig middleware.RateLimitConfig, logger *slog.Logger, trust ClientIPTrust) (*gin.Engine, error) {
 	r := gin.New()
-	_ = r.SetTrustedProxies(nil)
+	if err := applyClientIPTrust(r, trust); err != nil {
+		return nil, err
+	}
 	// RequestIDMiddleware runs first so every response and log line, including
 	// rejected or rate-limited requests, carries a correlation identifier.
 	r.Use(middleware.RequestIDMiddleware())
@@ -149,5 +179,25 @@ func NewRouterWithConfig(proxyHandler *handler.ProxyHandler, jwtSecret, appURL s
 		}
 	}
 
-	return r
+	return r, nil
+}
+
+// applyClientIPTrust configures gin's ClientIP from the trust policy. The zero
+// policy keeps SetTrustedProxies(nil) with no forwarded header, so every request
+// is identified by its socket address exactly as before KEL-62.
+func applyClientIPTrust(r *gin.Engine, trust ClientIPTrust) error {
+	// Platform headers (Cloudflare, App Engine, …) are never trusted implicitly;
+	// they would bypass the proxy check entirely.
+	r.TrustedPlatform = ""
+	if len(trust.TrustedProxies) == 0 || trust.Header == "" {
+		r.ForwardedByClientIP = false
+		r.RemoteIPHeaders = nil
+		return r.SetTrustedProxies(nil)
+	}
+	if err := r.SetTrustedProxies(trust.TrustedProxies); err != nil {
+		return fmt.Errorf("trusted proxies: %w", err)
+	}
+	r.ForwardedByClientIP = true
+	r.RemoteIPHeaders = []string{trust.Header}
+	return nil
 }

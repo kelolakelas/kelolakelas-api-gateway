@@ -3,8 +3,11 @@ package config
 import (
 	"fmt"
 	"log/slog"
+	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -71,6 +74,15 @@ type Config struct {
 	ServerReadTimeout       int `mapstructure:"SERVER_READ_TIMEOUT_SECONDS"`
 	ServerWriteTimeout      int `mapstructure:"SERVER_WRITE_TIMEOUT_SECONDS"`
 	ServerIdleTimeout       int `mapstructure:"SERVER_IDLE_TIMEOUT_SECONDS"`
+
+	// TrustedProxyCIDRsRaw is the comma-separated TRUSTED_PROXY_CIDRS value as
+	// read from the environment; TrustedProxies holds its validated entries.
+	// Only a request whose socket peer is inside one of these ranges may name
+	// the client IP through TrustedClientIPHeader. Both are empty by default,
+	// which trusts no proxy: the client IP is always the socket address.
+	TrustedProxyCIDRsRaw  string   `mapstructure:"TRUSTED_PROXY_CIDRS"`
+	TrustedProxies        []string `mapstructure:"-"`
+	TrustedClientIPHeader string   `mapstructure:"TRUSTED_CLIENT_IP_HEADER"`
 }
 
 func LoadConfig() (Config, error) {
@@ -97,6 +109,7 @@ func LoadConfig() (Config, error) {
 		"RATE_LIMIT_WEBHOOK_WINDOW_SECONDS",
 		"PROXY_UPSTREAM_TIMEOUT_SECONDS", "PROXY_MAX_BODY_BYTES", "SERVER_READ_HEADER_TIMEOUT_SECONDS",
 		"SERVER_READ_TIMEOUT_SECONDS", "SERVER_WRITE_TIMEOUT_SECONDS", "SERVER_IDLE_TIMEOUT_SECONDS",
+		"TRUSTED_PROXY_CIDRS", "TRUSTED_CLIENT_IP_HEADER",
 	} {
 		if err := viper.BindEnv(key); err != nil {
 			return Config{}, err
@@ -211,5 +224,78 @@ func LoadConfig() (Config, error) {
 			config.ServerWriteTimeout, config.ProxyUpstreamTimeout)
 	}
 
+	trustedProxies, clientIPHeader, err := parseClientIPTrust(config.TrustedProxyCIDRsRaw, config.TrustedClientIPHeader)
+	if err != nil {
+		return Config{}, err
+	}
+	config.TrustedProxies = trustedProxies
+	config.TrustedClientIPHeader = clientIPHeader
+
 	return config, nil
+}
+
+// headerNamePattern is the RFC 9110 token alphabet for a field name.
+var headerNamePattern = regexp.MustCompile("^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
+
+// parseClientIPTrust validates the trusted-proxy policy that decides where the
+// gateway reads the client IP from (KEL-62).
+//
+// The client IP keys the rate limiter, so a policy that trusts too much lets a
+// caller rotate a forged header value and escape the login limit. The rules are
+// therefore strict and fail at startup rather than at request time:
+//   - both variables empty: no proxy is trusted, which is the previous behaviour;
+//   - both must be set together, because a header without trusted proxies would
+//     be silently ignored and trusted proxies without a header would be useless;
+//   - every entry must be an IP address or a CIDR range, and a zero-length
+//     prefix (0.0.0.0/0, ::/0) is rejected because it trusts every peer.
+func parseClientIPTrust(rawCIDRs, rawHeader string) ([]string, string, error) {
+	header := strings.TrimSpace(rawHeader)
+	var proxies []string
+	for _, entry := range strings.Split(rawCIDRs, ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		prefix, err := parseProxyEntry(entry)
+		if err != nil {
+			return nil, "", fmt.Errorf("TRUSTED_PROXY_CIDRS entry %q is not a valid IP address or CIDR range", entry)
+		}
+		if prefix.Bits() == 0 {
+			return nil, "", fmt.Errorf("TRUSTED_PROXY_CIDRS entry %q trusts every address; list the proxy ranges explicitly", entry)
+		}
+		proxies = append(proxies, prefix.String())
+	}
+
+	switch {
+	case len(proxies) == 0 && header == "":
+		return nil, "", nil
+	case len(proxies) == 0:
+		return nil, "", fmt.Errorf("TRUSTED_CLIENT_IP_HEADER is set but TRUSTED_PROXY_CIDRS is empty; set both or neither")
+	case header == "":
+		return nil, "", fmt.Errorf("TRUSTED_PROXY_CIDRS is set but TRUSTED_CLIENT_IP_HEADER is empty; set both or neither")
+	case !headerNamePattern.MatchString(header):
+		return nil, "", fmt.Errorf("TRUSTED_CLIENT_IP_HEADER %q is not a valid HTTP header name", header)
+	}
+	return proxies, http.CanonicalHeaderKey(header), nil
+}
+
+// parseProxyEntry accepts a CIDR range or a single address, which is read as a
+// host-length prefix. Host bits in a range are masked away.
+func parseProxyEntry(entry string) (netip.Prefix, error) {
+	if strings.Contains(entry, "/") {
+		prefix, err := netip.ParsePrefix(entry)
+		if err != nil {
+			return netip.Prefix{}, err
+		}
+		return prefix.Masked(), nil
+	}
+	addr, err := netip.ParseAddr(entry)
+	if err != nil {
+		return netip.Prefix{}, err
+	}
+	if addr.Zone() != "" {
+		return netip.Prefix{}, fmt.Errorf("zoned address")
+	}
+	addr = addr.Unmap()
+	return netip.PrefixFrom(addr, addr.BitLen()), nil
 }
