@@ -10,12 +10,13 @@ import (
 )
 
 type Claims struct {
-	UserID   string `json:"user_id"`
-	Email    string `json:"email"`
-	TenantID string `json:"tenant_id,omitempty"`
-	RoleID   string `json:"role_id,omitempty"`
-	MemberID string `json:"member_id,omitempty"`
-	IsParent bool   `json:"is_parent,omitempty"`
+	UserID          string `json:"user_id"`
+	Email           string `json:"email"`
+	TenantID        string `json:"tenant_id,omitempty"`
+	RoleID          string `json:"role_id,omitempty"`
+	MemberID        string `json:"member_id,omitempty"`
+	IsParent        bool   `json:"is_parent,omitempty"`
+	IsPlatformAdmin bool   `json:"is_platform_admin,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -78,7 +79,7 @@ func AuthMiddleware(jwtSecret string) gin.HandlerFunc {
 		// non-parent token without a tenant cannot satisfy any tenant-scoped
 		// route. Rejecting both here keeps the gateway consistent with the
 		// academic service, which applies the same rule.
-		if claims.UserID == "" || (!claims.IsParent && absentTenantClaim(claims.TenantID)) {
+		if claims.UserID == "" || (!claims.IsParent && !claims.IsPlatformAdmin && absentTenantClaim(claims.TenantID)) {
 			c.JSON(http.StatusUnauthorized, gin.H{
 				"status":  "error",
 				"message": "Unauthorized: Invalid token",
@@ -95,6 +96,7 @@ func AuthMiddleware(jwtSecret string) gin.HandlerFunc {
 		c.Set("role_id", claims.RoleID)
 		c.Set("member_id", claims.MemberID)
 		c.Set("is_parent", claims.IsParent)
+		c.Set("is_platform_admin", claims.IsPlatformAdmin)
 
 		// Publish the tenant a proxied request acts on. The value comes from the
 		// verified claim only, so the header names the identity the token is

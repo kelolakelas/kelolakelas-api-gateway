@@ -86,6 +86,7 @@ func NewRouterWithClientIPTrust(proxyHandler *handler.ProxyHandler, jwtSecret, a
 		// Public Auth & Invitation routes - proxying directly to identity-service
 		apiV1.POST("/auth/register", proxyHandler.ProxyToIdentityService())
 		apiV1.POST("/auth/login", proxyHandler.ProxyToIdentityService())
+		apiV1.POST("/platform/auth/login", proxyHandler.ProxyToIdentityService())
 		apiV1.POST("/tenants/register", proxyHandler.ProxyToIdentityService())
 		apiV1.GET("/invitations/verify", proxyHandler.ProxyToIdentityService())
 		apiV1.POST("/invitations/register", proxyHandler.ProxyToIdentityService())
@@ -100,6 +101,8 @@ func NewRouterWithClientIPTrust(proxyHandler *handler.ProxyHandler, jwtSecret, a
 		protected := apiV1.Group("")
 		protected.Use(middleware.AuthMiddleware(jwtSecret))
 		{
+			protected.GET("/platform/me", middleware.RequirePlatform(), proxyHandler.ProxyToIdentityService())
+			protected.Use(middleware.RequireTenant())
 			// Proxied Identity routes
 			protected.POST("/invitations", proxyHandler.ProxyToIdentityService())
 			protected.GET("/members", proxyHandler.ProxyToIdentityService())
