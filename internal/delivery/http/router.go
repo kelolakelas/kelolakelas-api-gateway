@@ -109,6 +109,8 @@ func NewRouterWithClientIPTrust(proxyHandler *handler.ProxyHandler, jwtSecret, a
 			protected.Use(middleware.RequireTenant())
 			// Proxied Identity routes
 			protected.POST("/invitations", proxyHandler.ProxyToIdentityService())
+			protected.POST("/creator-requests", proxyHandler.ProxyToIdentityService())
+			protected.GET("/creator-requests", proxyHandler.ProxyToIdentityService())
 			protected.GET("/members", proxyHandler.ProxyToIdentityService())
 			protected.GET("/tutors", proxyHandler.ProxyToIdentityService())
 			protected.GET("/members/:id", proxyHandler.ProxyToIdentityService())
