@@ -64,7 +64,7 @@ func main() {
 	}, logger, gatewayhttp.ClientIPTrust{
 		TrustedProxies: cfg.TrustedProxies,
 		Header:         cfg.TrustedClientIPHeader,
-	})
+	}, proxyHandler.CheckSession)
 	if err != nil {
 		slog.Error("Failed to configure client IP trust", "error", err)
 		os.Exit(1)

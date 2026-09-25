@@ -46,7 +46,11 @@ type ClientIPTrust struct {
 // NewRouterWithClientIPTrust builds the gateway router with an explicit client-IP
 // trust policy. It returns an error when a trusted proxy entry is not an IP
 // address or CIDR range; configuration loading validates the same rules first.
-func NewRouterWithClientIPTrust(proxyHandler *handler.ProxyHandler, jwtSecret, appURL string, redisClient middleware.RedisClient, rateLimitConfig middleware.RateLimitConfig, logger *slog.Logger, trust ClientIPTrust) (*gin.Engine, error) {
+func NewRouterWithClientIPTrust(proxyHandler *handler.ProxyHandler, jwtSecret, appURL string, redisClient middleware.RedisClient, rateLimitConfig middleware.RateLimitConfig, logger *slog.Logger, trust ClientIPTrust, sessionChecks ...middleware.SessionChecker) (*gin.Engine, error) {
+	var check middleware.SessionChecker
+	if len(sessionChecks) > 0 {
+		check = sessionChecks[0]
+	}
 	r := gin.New()
 	if err := applyClientIPTrust(r, trust); err != nil {
 		return nil, err
@@ -86,6 +90,8 @@ func NewRouterWithClientIPTrust(proxyHandler *handler.ProxyHandler, jwtSecret, a
 		// Public Auth & Invitation routes - proxying directly to identity-service
 		apiV1.POST("/auth/register", proxyHandler.ProxyToIdentityService())
 		apiV1.POST("/auth/login", proxyHandler.ProxyToIdentityService())
+		apiV1.POST("/auth/password-reset/request", proxyHandler.ProxyToIdentityService())
+		apiV1.POST("/auth/password-reset/confirm", proxyHandler.ProxyToIdentityService())
 		apiV1.POST("/platform/auth/login", proxyHandler.ProxyToIdentityService())
 		apiV1.POST("/tenants/register", proxyHandler.ProxyToIdentityService())
 		apiV1.GET("/invitations/verify", proxyHandler.ProxyToIdentityService())
@@ -99,7 +105,7 @@ func NewRouterWithClientIPTrust(proxyHandler *handler.ProxyHandler, jwtSecret, a
 
 		// Protected routes
 		protected := apiV1.Group("")
-		protected.Use(middleware.AuthMiddleware(jwtSecret))
+		protected.Use(middleware.AuthMiddlewareWithSessionCheck(jwtSecret, check))
 		{
 			protected.GET("/platform/me", middleware.RequirePlatform(), proxyHandler.ProxyToIdentityService())
 			protected.GET("/platform/configurations", middleware.RequirePlatform(), proxyHandler.ProxyToIdentityService())

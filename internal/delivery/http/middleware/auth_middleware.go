@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
@@ -21,7 +22,13 @@ type Claims struct {
 }
 
 // AuthMiddleware checks the Authorization header for a JWT token
+type SessionChecker func(context.Context, string) (int, error)
+
 func AuthMiddleware(jwtSecret string) gin.HandlerFunc {
+	return AuthMiddlewareWithSessionCheck(jwtSecret, nil)
+}
+
+func AuthMiddlewareWithSessionCheck(jwtSecret string, check SessionChecker) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
@@ -87,6 +94,18 @@ func AuthMiddleware(jwtSecret string) gin.HandlerFunc {
 			})
 			c.Abort()
 			return
+		}
+
+		if check != nil {
+			status, err := check(c.Request.Context(), tokenStr)
+			if err != nil || status >= http.StatusInternalServerError {
+				c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"status": "error", "message": "Session validation unavailable", "data": nil})
+				return
+			}
+			if status != http.StatusNoContent {
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"status": "error", "message": "Unauthorized: Invalid session", "data": nil})
+				return
+			}
 		}
 
 		// Set user context in Gin context

@@ -81,6 +81,23 @@ func NewProxyHandlerWithOptions(identityServiceAddr, academicServiceAddr, billin
 	}, nil
 }
 
+// CheckSession asks identity to validate the signed JWT against the durable
+// per-user session boundary. An outage is returned to the caller, never cached.
+func (h *ProxyHandler) CheckSession(ctx context.Context, signedToken string) (int, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, h.identityServiceURL.String()+"/api/v1/internal/session/check", nil)
+	if err != nil {
+		return 0, err
+	}
+	request.Header.Set("Authorization", "Bearer "+signedToken)
+	client := &http.Client{Transport: h.transport, Timeout: 3 * time.Second}
+	response, err := client.Do(request)
+	if err != nil {
+		return 0, err
+	}
+	defer response.Body.Close()
+	return response.StatusCode, nil
+}
+
 func (h *ProxyHandler) ProxyToIdentityService() gin.HandlerFunc {
 	return h.proxyRoute(h.newProxy(h.identityServiceURL), "identity-service")
 }
