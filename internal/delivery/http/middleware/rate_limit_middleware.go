@@ -127,7 +127,7 @@ func RateLimitMiddleware(client RedisClient, config RateLimitConfig, logger *slo
 func (config RateLimitConfig) limitFor(path string) (int, int) {
 	windowSeconds := config.WindowSeconds
 	switch path {
-	case "/api/v1/auth/login":
+	case "/api/v1/auth/login", "/api/v1/auth/password-reset/request", "/api/v1/auth/password-reset/confirm":
 		return config.SensitiveLoginRequests, windowSeconds
 	case "/api/v1/auth/register":
 		return config.SensitiveRegisterRequests, windowSeconds
