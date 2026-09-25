@@ -57,6 +57,7 @@ func TestProtectedRoutesProxyToExpectedService(t *testing.T) {
 		}
 		if platform {
 			claims["is_platform_admin"] = true
+			claims["platform_factor_version"] = 1
 			claims["tenant_id"] = "00000000-0000-0000-0000-000000000000"
 		} else {
 			claims["tenant_id"] = "00000000-0000-0000-0000-000000000002"
@@ -149,7 +150,7 @@ func TestPlatformConfigurationRoutesRejectTenantAndParentTokens(t *testing.T) {
 	}
 	tenantToken := makeToken(jwt.MapClaims{"tenant_id": "00000000-0000-0000-0000-000000000002"})
 	parentToken := makeToken(jwt.MapClaims{"tenant_id": "00000000-0000-0000-0000-000000000000", "is_parent": true})
-	platformToken := makeToken(jwt.MapClaims{"tenant_id": "00000000-0000-0000-0000-000000000000", "is_platform_admin": true})
+	platformToken := makeToken(jwt.MapClaims{"tenant_id": "00000000-0000-0000-0000-000000000000", "is_platform_admin": true, "platform_factor_version": 1})
 	for _, route := range []struct{ method, path string }{
 		{http.MethodGet, "/api/v1/platform/configurations?environment=staging"},
 		{http.MethodGet, "/api/v1/platform/configurations/api-gateway/RATE_LIMIT_REQUESTS/history?environment=staging"},

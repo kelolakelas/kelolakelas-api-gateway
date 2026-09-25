@@ -43,7 +43,7 @@ func TestCreatorDecisionPlatformRoute(t *testing.T) {
 			{"anonymous", "", 401},
 			{"tenant", token(jwt.MapClaims{"tenant_id": "00000000-0000-0000-0000-000000000002"}), 403},
 			{"parent", token(jwt.MapClaims{"is_parent": true}), 403},
-			{"platform", token(jwt.MapClaims{"is_platform_admin": true}), 204},
+			{"platform", token(jwt.MapClaims{"is_platform_admin": true, "platform_factor_version": 1}), 204},
 		} {
 			t.Run(action+"/"+tc.name, func(t *testing.T) {
 				req, err := http.NewRequest(http.MethodPost, gateway.URL+"/api/v1/platform/creator-requests/00000000-0000-0000-0000-000000000003/"+action, nil)

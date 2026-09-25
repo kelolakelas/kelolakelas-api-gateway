@@ -32,7 +32,7 @@ func TestCreatorRequestRoutesRequireTenantToken(t *testing.T) {
 	}
 	tenant := token(jwt.MapClaims{"tenant_id": "00000000-0000-0000-0000-000000000002"})
 	parent := token(jwt.MapClaims{"is_parent": true, "tenant_id": "00000000-0000-0000-0000-000000000000"})
-	platform := token(jwt.MapClaims{"is_platform_admin": true})
+	platform := token(jwt.MapClaims{"is_platform_admin": true, "platform_factor_version": 1})
 	for _, method := range []string{http.MethodGet, http.MethodPost} {
 		for _, tc := range []struct {
 			name, value string

@@ -15,8 +15,8 @@ func TestPlatformPrincipalBoundary(t *testing.T) {
 		claims           jwt.MapClaims
 		platform, tenant int
 	}{
-		{"platform only", jwt.MapClaims{"user_id": "admin", "is_platform_admin": true}, 204, 403},
-		{"dual membership", jwt.MapClaims{"user_id": "admin", "is_platform_admin": true, "tenant_id": "11111111-1111-1111-1111-111111111111"}, 204, 204},
+		{"platform only", jwt.MapClaims{"user_id": "admin", "is_platform_admin": true, "platform_factor_version": 1}, 204, 403},
+		{"dual membership", jwt.MapClaims{"user_id": "admin", "is_platform_admin": true, "platform_factor_version": 1, "tenant_id": "11111111-1111-1111-1111-111111111111"}, 204, 204},
 		{"tenant creator", jwt.MapClaims{"user_id": "creator", "tenant_id": "11111111-1111-1111-1111-111111111111"}, 403, 204},
 		{"custom tenant role", jwt.MapClaims{"user_id": "member", "tenant_id": "11111111-1111-1111-1111-111111111111", "role_id": "22222222-2222-2222-2222-222222222222"}, 403, 204},
 		{"parent", jwt.MapClaims{"user_id": "parent", "is_parent": true}, 403, 204},
