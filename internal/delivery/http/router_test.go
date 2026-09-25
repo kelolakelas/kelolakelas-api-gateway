@@ -50,21 +50,37 @@ func TestProtectedRoutesProxyToExpectedService(t *testing.T) {
 	router := NewRouter(proxy, "test-secret")
 	gateway := httptest.NewServer(router)
 	defer gateway.Close()
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"user_id":   "00000000-0000-0000-0000-000000000001",
-		"tenant_id": "00000000-0000-0000-0000-000000000002",
-		"exp":       time.Now().Add(time.Hour).Unix(),
-	})
-	tokenString, err := token.SignedString([]byte("test-secret"))
-	if err != nil {
-		t.Fatal(err)
+	makeToken := func(platform bool) string {
+		claims := jwt.MapClaims{
+			"user_id": "00000000-0000-0000-0000-000000000001",
+			"exp":     time.Now().Add(time.Hour).Unix(),
+		}
+		if platform {
+			claims["is_platform_admin"] = true
+			claims["tenant_id"] = "00000000-0000-0000-0000-000000000000"
+		} else {
+			claims["tenant_id"] = "00000000-0000-0000-0000-000000000002"
+		}
+		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+		tokenString, err := token.SignedString([]byte("test-secret"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return tokenString
 	}
+	regularToken := makeToken(false)
+	platformToken := makeToken(true)
 
 	tests := []struct {
 		name, path, service string
 		method              string
+		platform            bool
 	}{
 		{name: "student", path: "/api/v1/students", service: "academic"},
+		{name: "platform configuration inventory", path: "/api/v1/platform/configurations?environment=staging", service: "identity", platform: true},
+		{name: "platform configuration history", path: "/api/v1/platform/configurations/api-gateway/RATE_LIMIT_REQUESTS/history?environment=staging", service: "identity", platform: true},
+		{name: "platform configuration version", path: "/api/v1/platform/configurations/api-gateway/RATE_LIMIT_REQUESTS/versions", service: "identity", method: http.MethodPost, platform: true},
+		{name: "platform configuration report", path: "/api/v1/platform/configurations/reports", service: "identity", method: http.MethodPost, platform: true},
 		{name: "enrollment", path: "/api/v1/enrollments", service: "academic"},
 		// Cancellation is an action on an enrollment, not a status write, so it is
 		// exposed as POST and must still reach the academic service. Other methods on
@@ -87,7 +103,11 @@ func TestProtectedRoutesProxyToExpectedService(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			req.Header.Set("Authorization", "Bearer "+tokenString)
+			selectedToken := regularToken
+			if test.platform {
+				selectedToken = platformToken
+			}
+			req.Header.Set("Authorization", "Bearer "+selectedToken)
 			response, err := http.DefaultClient.Do(req)
 			if err != nil {
 				t.Fatal(err)
@@ -100,6 +120,59 @@ func TestProtectedRoutesProxyToExpectedService(t *testing.T) {
 				t.Fatalf("service=%q want=%q", got, test.service)
 			}
 		})
+	}
+}
+
+func TestPlatformConfigurationRoutesRejectTenantAndParentTokens(t *testing.T) {
+	var identityCalls int
+	identity := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		identityCalls++
+		io.Copy(io.Discard, r.Body)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer identity.Close()
+	proxy, err := handler.NewProxyHandler(identity.URL, "http://academic", "http://billing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	router := NewRouter(proxy, "platform-route-test")
+	makeToken := func(claims jwt.MapClaims) string {
+		claims["user_id"] = "00000000-0000-0000-0000-000000000001"
+		claims["exp"] = time.Now().Add(time.Hour).Unix()
+		token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte("platform-route-test"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return token
+	}
+	tenantToken := makeToken(jwt.MapClaims{"tenant_id": "00000000-0000-0000-0000-000000000002"})
+	parentToken := makeToken(jwt.MapClaims{"tenant_id": "00000000-0000-0000-0000-000000000000", "is_parent": true})
+	platformToken := makeToken(jwt.MapClaims{"tenant_id": "00000000-0000-0000-0000-000000000000", "is_platform_admin": true})
+	for _, route := range []struct{ method, path string }{
+		{http.MethodGet, "/api/v1/platform/configurations?environment=staging"},
+		{http.MethodGet, "/api/v1/platform/configurations/api-gateway/RATE_LIMIT_REQUESTS/history?environment=staging"},
+		{http.MethodPost, "/api/v1/platform/configurations/api-gateway/RATE_LIMIT_REQUESTS/versions"},
+		{http.MethodPost, "/api/v1/platform/configurations/reports"},
+	} {
+		for _, principal := range []struct {
+			name, token string
+			want        int
+		}{{"missing token", "", http.StatusUnauthorized}, {"tenant", tenantToken, http.StatusForbidden}, {"parent", parentToken, http.StatusForbidden}, {"platform admin", platformToken, http.StatusNoContent}} {
+			t.Run(route.method+" "+route.path+"/"+principal.name, func(t *testing.T) {
+				request := httptest.NewRequest(route.method, route.path, nil)
+				if principal.token != "" {
+					request.Header.Set("Authorization", "Bearer "+principal.token)
+				}
+				response := newCloseNotifyRecorder()
+				router.ServeHTTP(response, request)
+				if response.Code != principal.want {
+					t.Fatalf("status=%d want=%d body=%s", response.Code, principal.want, response.Body.String())
+				}
+			})
+		}
+	}
+	if identityCalls != 4 {
+		t.Fatalf("identity calls=%d want=4 (only authenticated platform-admin requests)", identityCalls)
 	}
 }
 
