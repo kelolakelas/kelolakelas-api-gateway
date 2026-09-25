@@ -11,13 +11,15 @@ import (
 )
 
 type Claims struct {
-	UserID          string `json:"user_id"`
-	Email           string `json:"email"`
-	TenantID        string `json:"tenant_id,omitempty"`
-	RoleID          string `json:"role_id,omitempty"`
-	MemberID        string `json:"member_id,omitempty"`
-	IsParent        bool   `json:"is_parent,omitempty"`
-	IsPlatformAdmin bool   `json:"is_platform_admin,omitempty"`
+	UserID                string `json:"user_id"`
+	Email                 string `json:"email"`
+	TenantID              string `json:"tenant_id,omitempty"`
+	RoleID                string `json:"role_id,omitempty"`
+	MemberID              string `json:"member_id,omitempty"`
+	IsParent              bool   `json:"is_parent,omitempty"`
+	IsPlatformAdmin       bool   `json:"is_platform_admin,omitempty"`
+	PlatformFactorVersion int64  `json:"platform_factor_version,omitempty"`
+	PlatformPending       bool   `json:"platform_pending,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -86,7 +88,7 @@ func AuthMiddlewareWithSessionCheck(jwtSecret string, check SessionChecker) gin.
 		// non-parent token without a tenant cannot satisfy any tenant-scoped
 		// route. Rejecting both here keeps the gateway consistent with the
 		// academic service, which applies the same rule.
-		if claims.UserID == "" || (!claims.IsParent && !claims.IsPlatformAdmin && absentTenantClaim(claims.TenantID)) {
+		if claims.UserID == "" || claims.PlatformPending || (claims.IsPlatformAdmin && claims.PlatformFactorVersion <= 0) || (!claims.IsParent && !claims.IsPlatformAdmin && absentTenantClaim(claims.TenantID)) {
 			c.JSON(http.StatusUnauthorized, gin.H{
 				"status":  "error",
 				"message": "Unauthorized: Invalid token",

@@ -93,6 +93,8 @@ func NewRouterWithClientIPTrust(proxyHandler *handler.ProxyHandler, jwtSecret, a
 		apiV1.POST("/auth/password-reset/request", proxyHandler.ProxyToIdentityService())
 		apiV1.POST("/auth/password-reset/confirm", proxyHandler.ProxyToIdentityService())
 		apiV1.POST("/platform/auth/login", proxyHandler.ProxyToIdentityService())
+		apiV1.POST("/platform/auth/challenge", proxyHandler.ProxyToIdentityService())
+		apiV1.POST("/platform/auth/verify", proxyHandler.ProxyToIdentityService())
 		apiV1.POST("/tenants/register", proxyHandler.ProxyToIdentityService())
 		apiV1.GET("/invitations/verify", proxyHandler.ProxyToIdentityService())
 		apiV1.POST("/invitations/register", proxyHandler.ProxyToIdentityService())
