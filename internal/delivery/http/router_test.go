@@ -89,6 +89,8 @@ func TestProtectedRoutesProxyToExpectedService(t *testing.T) {
 		{name: "session", path: "/api/v1/sessions", service: "academic"},
 		{name: "session attendees", path: "/api/v1/sessions/00000000-0000-0000-0000-000000000003/attendees", service: "academic"},
 		{name: "tutor", path: "/api/v1/tutors", service: "identity"},
+		{name: "list creator requests", path: "/api/v1/creator-requests", service: "identity"},
+		{name: "create creator request", path: "/api/v1/creator-requests", service: "identity", method: http.MethodPost},
 		{name: "attendance", path: "/api/v1/attendance", service: "academic"},
 		{name: "report", path: "/api/v1/reports", service: "academic"},
 		{name: "billing", path: "/api/v1/billing/transactions", service: "billing"},
