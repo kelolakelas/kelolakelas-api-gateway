@@ -120,6 +120,7 @@ func NewRouterWithClientIPTrust(proxyHandler *handler.ProxyHandler, jwtSecret, a
 			protected.GET("/platform/catalog-policy", middleware.RequirePlatform(), proxyHandler.ProxyToIdentityService())
 			protected.POST("/platform/catalog-policy/close", middleware.RequirePlatform(), proxyHandler.ProxyToIdentityService())
 			protected.POST("/platform/catalog-policy/open", middleware.RequirePlatform(), proxyHandler.ProxyToIdentityService())
+			protected.GET("/platform/creator-requests", middleware.RequirePlatform(), proxyHandler.ProxyToIdentityService())
 			protected.POST("/platform/creator-requests/:id/approve", middleware.RequirePlatform(), proxyHandler.ProxyToIdentityService())
 			protected.POST("/platform/creator-requests/:id/reject", middleware.RequirePlatform(), proxyHandler.ProxyToIdentityService())
 			protected.Use(middleware.RequireTenant())
