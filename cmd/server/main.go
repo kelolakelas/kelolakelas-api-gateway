@@ -52,7 +52,7 @@ func main() {
 	}
 
 	// Setup Router
-	r, err := gatewayhttp.NewRouterWithClientIPTrust(proxyHandler, cfg.JWTSecret, cfg.APPURL, redisClient, middleware.RateLimitConfig{
+	r, err := gatewayhttp.NewRouterWithReadiness(proxyHandler, cfg.JWTSecret, cfg.APPURL, redisClient, middleware.RateLimitConfig{
 		Requests:                  cfg.RateLimitRequests,
 		WindowSeconds:             cfg.RateLimitWindow,
 		PublicRequests:            cfg.RateLimitPublic,
@@ -64,6 +64,11 @@ func main() {
 	}, logger, gatewayhttp.ClientIPTrust{
 		TrustedProxies: cfg.TrustedProxies,
 		Header:         cfg.TrustedClientIPHeader,
+	}, gatewayhttp.ReadinessConfig{
+		IdentityURL: cfg.IdentityServiceURL,
+		AcademicURL: cfg.AcademicServiceURL,
+		BillingURL:  cfg.BillingServiceURL,
+		Redis:       redisClient,
 	}, proxyHandler.CheckSession)
 	if err != nil {
 		slog.Error("Failed to configure client IP trust", "error", err)

@@ -47,6 +47,14 @@ type ClientIPTrust struct {
 // trust policy. It returns an error when a trusted proxy entry is not an IP
 // address or CIDR range; configuration loading validates the same rules first.
 func NewRouterWithClientIPTrust(proxyHandler *handler.ProxyHandler, jwtSecret, appURL string, redisClient middleware.RedisClient, rateLimitConfig middleware.RateLimitConfig, logger *slog.Logger, trust ClientIPTrust, sessionChecks ...middleware.SessionChecker) (*gin.Engine, error) {
+	return newRouterWithReadiness(proxyHandler, jwtSecret, appURL, redisClient, rateLimitConfig, logger, trust, ReadinessConfig{}, sessionChecks...)
+}
+
+func NewRouterWithReadiness(proxyHandler *handler.ProxyHandler, jwtSecret, appURL string, redisClient middleware.RedisClient, rateLimitConfig middleware.RateLimitConfig, logger *slog.Logger, trust ClientIPTrust, readiness ReadinessConfig, sessionChecks ...middleware.SessionChecker) (*gin.Engine, error) {
+	return newRouterWithReadiness(proxyHandler, jwtSecret, appURL, redisClient, rateLimitConfig, logger, trust, readiness, sessionChecks...)
+}
+
+func newRouterWithReadiness(proxyHandler *handler.ProxyHandler, jwtSecret, appURL string, redisClient middleware.RedisClient, rateLimitConfig middleware.RateLimitConfig, logger *slog.Logger, trust ClientIPTrust, readiness ReadinessConfig, sessionChecks ...middleware.SessionChecker) (*gin.Engine, error) {
 	var check middleware.SessionChecker
 	if len(sessionChecks) > 0 {
 		check = sessionChecks[0]
@@ -75,6 +83,7 @@ func NewRouterWithClientIPTrust(proxyHandler *handler.ProxyHandler, jwtSecret, a
 			"service": "api-gateway",
 		})
 	})
+	r.GET("/ready", readinessHandler(readiness))
 
 	// Swagger UI routes
 	r.GET("/swagger", func(c *gin.Context) {
