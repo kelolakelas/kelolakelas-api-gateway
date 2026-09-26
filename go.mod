@@ -9,6 +9,7 @@ require (
 	github.com/redis/go-redis/v9 v9.22.0
 	github.com/spf13/viper v1.21.0
 	github.com/swaggo/files v1.0.1
+	golang.org/x/net v0.57.0
 )
 
 require (
@@ -48,8 +49,9 @@ require (
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/arch v0.29.0 // indirect
 	golang.org/x/crypto v0.54.0 // indirect
-	golang.org/x/net v0.57.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.40.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
+
+replace golang.org/x/net => golang.org/x/net v0.34.0
