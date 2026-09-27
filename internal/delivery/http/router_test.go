@@ -95,6 +95,7 @@ func TestProtectedRoutesProxyToExpectedService(t *testing.T) {
 		{name: "attendance", path: "/api/v1/attendance", service: "academic"},
 		{name: "report", path: "/api/v1/reports", service: "academic"},
 		{name: "billing", path: "/api/v1/billing/transactions", service: "billing"},
+		{name: "sales summary", path: "/api/v1/billing/transactions/summary?from=2026-09-01&to=2026-09-30", service: "billing"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -123,6 +124,68 @@ func TestProtectedRoutesProxyToExpectedService(t *testing.T) {
 				t.Fatalf("service=%q want=%q", got, test.service)
 			}
 		})
+	}
+}
+
+// KEL-58: the summary route is protected and forwards its path and range query unchanged
+// with the tenant from the token; billing owns the range validation and billing:read check.
+func TestSalesSummaryRouteForwardsRangeToBilling(t *testing.T) {
+	var gotPath, gotQuery, gotTenant string
+	billing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath, gotQuery, gotTenant = r.URL.Path, r.URL.RawQuery, r.Header.Get("X-Tenant-ID")
+		w.WriteHeader(http.StatusBadRequest)
+	}))
+	defer billing.Close()
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Error("summary reached a non-billing service")
+	}))
+	defer other.Close()
+	proxy, err := handler.NewProxyHandler(other.URL, other.URL, billing.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gateway := httptest.NewServer(NewRouter(proxy, "test-secret"))
+	defer gateway.Close()
+	const target = "/api/v1/billing/transactions/summary?from=2026-09-30&to=2026-09-01"
+
+	// /billing/transactions/:id would also match; the contract is an explicit summary route
+	// so a later change to the detail route cannot silently swallow it.
+	registered := false
+	for _, route := range NewRouter(proxy, "test-secret").Routes() {
+		registered = registered || (route.Method == http.MethodGet && route.Path == "/api/v1/billing/transactions/summary")
+	}
+	if !registered {
+		t.Fatal("GET /api/v1/billing/transactions/summary is not registered explicitly")
+	}
+
+	anonymous, err := http.Get(gateway.URL + target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	anonymous.Body.Close()
+	if anonymous.StatusCode != http.StatusUnauthorized || gotPath != "" {
+		t.Fatalf("anonymous status=%d downstream=%q, want 401 without proxying", anonymous.StatusCode, gotPath)
+	}
+
+	tenantID := "00000000-0000-0000-0000-000000000002"
+	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"user_id": "00000000-0000-0000-0000-000000000001", "tenant_id": tenantID, "exp": time.Now().Add(time.Hour).Unix(),
+	}).SignedString([]byte("test-secret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, _ := http.NewRequest(http.MethodGet, gateway.URL+target, nil)
+	request.Header.Set("Authorization", "Bearer "+token)
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status=%d, want billing's 400 passed through", response.StatusCode)
+	}
+	if gotPath != "/api/v1/billing/transactions/summary" || gotQuery != "from=2026-09-30&to=2026-09-01" || gotTenant != tenantID {
+		t.Fatalf("downstream path=%q query=%q tenant=%q", gotPath, gotQuery, gotTenant)
 	}
 }
 
@@ -747,6 +810,7 @@ func TestClientContextHeadersNeverReachDownstream(t *testing.T) {
 		{name: "identity", path: "/api/v1/roles", service: "identity"},
 		{name: "academic", path: "/api/v1/classes", service: "academic"},
 		{name: "billing", path: "/api/v1/billing/transactions", service: "billing"},
+		{name: "billing sales summary", path: "/api/v1/billing/transactions/summary", service: "billing"},
 	}
 
 	for _, route := range protectedRoutes {
