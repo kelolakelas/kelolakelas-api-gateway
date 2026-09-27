@@ -3,11 +3,12 @@ package main
 import (
 	"context"
 	"crypto/tls"
-	"errors"
 	"log/slog"
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/kelolakelas/kelolakelas-api-gateway/internal/config"
@@ -82,17 +83,30 @@ func main() {
 	// upstream timeout, so a slow but healthy downstream is never cut short by
 	// the server itself.
 	server := newHTTPServer(cfg, r)
+	listener, err := net.Listen("tcp", server.Addr)
+	if err != nil {
+		logger.Error("Failed to start API Gateway", "error", err)
+		os.Exit(1)
+	}
+	// SIGINT/SIGTERM cancel ctx, which starts the bounded drain in serveUntilDone
+	// (KEL-71). The handler stays registered for the whole drain, so a second
+	// signal does not cut it short; the shutdown timeout still bounds the exit.
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
 	logger.Info("Starting API Gateway",
 		"port", cfg.Port,
 		"proxy_upstream_timeout_seconds", cfg.ProxyUpstreamTimeout,
 		"proxy_max_body_bytes", cfg.ProxyMaxBodyBytes,
 		"server_write_timeout_seconds", cfg.ServerWriteTimeout,
+		"server_shutdown_timeout_seconds", cfg.ServerShutdownTimeout,
 		"trusted_proxy_count", len(cfg.TrustedProxies),
 		"trusted_client_ip_header", cfg.TrustedClientIPHeader,
 	)
-	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		logger.Error("Failed to start API Gateway", "error", err)
+	if err := serveUntilDone(ctx, server, listener, time.Duration(cfg.ServerShutdownTimeout)*time.Second); err != nil {
+		logger.Error("API Gateway stopped with error", "error", err)
+		stop()
+		os.Exit(1)
 	}
 }
 

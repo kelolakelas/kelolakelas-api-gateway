@@ -244,6 +244,53 @@ func TestServerWriteTimeoutMustExceedUpstreamTimeout(t *testing.T) {
 	}
 }
 
+// KEL-71: the graceful shutdown bound has a default, can be overridden, never
+// becomes unbounded from a zero or negative value, and a value too large for a
+// duration stops startup instead of overflowing.
+func TestServerShutdownTimeout(t *testing.T) {
+	for _, test := range []struct {
+		name, value string
+		want        int
+		wantErr     string
+	}{
+		{name: "unset uses default", want: DefaultServerShutdownTimeout},
+		{name: "override", value: "25", want: 25},
+		{name: "zero uses default", value: "0", want: DefaultServerShutdownTimeout},
+		{name: "negative uses default", value: "-3", want: DefaultServerShutdownTimeout},
+		{name: "too large is rejected", value: "9223372037", wantErr: "SERVER_SHUTDOWN_TIMEOUT_SECONDS (9223372037) is too large"},
+		{name: "non-numeric is rejected", value: "soon", wantErr: "SERVER_SHUTDOWN_TIMEOUT_SECONDS"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			viper.Reset()
+			t.Chdir(t.TempDir())
+			t.Setenv("JWT_SECRET", "test-jwt-secret")
+			t.Setenv("SERVER_SHUTDOWN_TIMEOUT_SECONDS", test.value)
+
+			config, err := LoadConfig()
+			if test.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+					t.Fatalf("error=%v, want it to contain %q", err, test.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if config.ServerShutdownTimeout != test.want {
+				t.Fatalf("ServerShutdownTimeout=%d want=%d", config.ServerShutdownTimeout, test.want)
+			}
+			// Regression: the shutdown setting leaves the KEL-37 server timeouts as they were.
+			if config.ServerReadHeaderTimeout != DefaultServerReadHeaderTimeout ||
+				config.ServerReadTimeout != DefaultServerReadTimeout ||
+				config.ServerWriteTimeout != DefaultServerWriteTimeout ||
+				config.ServerIdleTimeout != DefaultServerIdleTimeout ||
+				config.ProxyUpstreamTimeout != DefaultProxyUpstreamTimeout {
+				t.Fatalf("server timeouts changed: %+v", config)
+			}
+		})
+	}
+}
+
 // TestProxyMaxBodyBytesAcceptsLargeCallbackPayloads proves the documented limit
 // leaves room for the largest current payloads, so the body limit cannot break
 // the Duitku webhook or the registration form.

@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 	"github.com/spf13/viper"
@@ -40,7 +41,15 @@ const (
 	// DefaultServerIdleTimeout bounds how long an idle keep-alive connection is
 	// reused.
 	DefaultServerIdleTimeout = 120
+	// DefaultServerShutdownTimeout bounds how long in-flight requests may drain
+	// after SIGINT/SIGTERM before the remaining connections are closed. It
+	// matches identity and academic (KEL-69) and stays inside a typical
+	// 30-second termination grace period.
+	DefaultServerShutdownTimeout = 15
 )
+
+// maxDurationSeconds is the largest number of seconds a time.Duration can hold.
+const maxDurationSeconds = int(int64(1<<63-1) / int64(time.Second))
 
 type Config struct {
 	JWTSecret          string `mapstructure:"JWT_SECRET"`
@@ -74,6 +83,9 @@ type Config struct {
 	ServerReadTimeout       int `mapstructure:"SERVER_READ_TIMEOUT_SECONDS"`
 	ServerWriteTimeout      int `mapstructure:"SERVER_WRITE_TIMEOUT_SECONDS"`
 	ServerIdleTimeout       int `mapstructure:"SERVER_IDLE_TIMEOUT_SECONDS"`
+	// ServerShutdownTimeout bounds the graceful drain on SIGINT/SIGTERM in
+	// seconds (KEL-71).
+	ServerShutdownTimeout int `mapstructure:"SERVER_SHUTDOWN_TIMEOUT_SECONDS"`
 
 	// TrustedProxyCIDRsRaw is the comma-separated TRUSTED_PROXY_CIDRS value as
 	// read from the environment; TrustedProxies holds its validated entries.
@@ -109,7 +121,7 @@ func LoadConfig() (Config, error) {
 		"RATE_LIMIT_WEBHOOK_WINDOW_SECONDS",
 		"PROXY_UPSTREAM_TIMEOUT_SECONDS", "PROXY_MAX_BODY_BYTES", "SERVER_READ_HEADER_TIMEOUT_SECONDS",
 		"SERVER_READ_TIMEOUT_SECONDS", "SERVER_WRITE_TIMEOUT_SECONDS", "SERVER_IDLE_TIMEOUT_SECONDS",
-		"TRUSTED_PROXY_CIDRS", "TRUSTED_CLIENT_IP_HEADER",
+		"SERVER_SHUTDOWN_TIMEOUT_SECONDS", "TRUSTED_PROXY_CIDRS", "TRUSTED_CLIENT_IP_HEADER",
 	} {
 		if err := viper.BindEnv(key); err != nil {
 			return Config{}, err
@@ -213,6 +225,14 @@ func LoadConfig() (Config, error) {
 	}
 	if config.ServerIdleTimeout <= 0 {
 		config.ServerIdleTimeout = DefaultServerIdleTimeout
+	}
+	// A non-positive shutdown timeout never disables the bound: an unbounded
+	// drain would let one stuck request keep the process alive until SIGKILL.
+	if config.ServerShutdownTimeout <= 0 {
+		config.ServerShutdownTimeout = DefaultServerShutdownTimeout
+	}
+	if config.ServerShutdownTimeout > maxDurationSeconds {
+		return Config{}, fmt.Errorf("SERVER_SHUTDOWN_TIMEOUT_SECONDS (%d) is too large for a duration", config.ServerShutdownTimeout)
 	}
 
 	// A write timeout shorter than the upstream timeout would cut a response the
