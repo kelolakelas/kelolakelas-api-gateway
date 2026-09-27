@@ -212,6 +212,7 @@ func newRouterWithReadiness(proxyHandler *handler.ProxyHandler, jwtSecret, appUR
 
 			// Billing Transaction routes
 			protected.GET("/billing/transactions", proxyHandler.ProxyToBillingService())
+			protected.GET("/billing/transactions/summary", proxyHandler.ProxyToBillingService())
 			protected.GET("/billing/transactions/:id", proxyHandler.ProxyToBillingService())
 		}
 	}
