@@ -129,6 +129,9 @@ func newRouterWithReadiness(proxyHandler *handler.ProxyHandler, jwtSecret, appUR
 			protected.GET("/platform/catalog-policy", middleware.RequirePlatform(), proxyHandler.ProxyToIdentityService())
 			protected.POST("/platform/catalog-policy/close", middleware.RequirePlatform(), proxyHandler.ProxyToIdentityService())
 			protected.POST("/platform/catalog-policy/open", middleware.RequirePlatform(), proxyHandler.ProxyToIdentityService())
+			// KEL-99: platform fee policy (read + create/apply a version), platform admins only.
+			protected.GET("/platform/fee-policy", middleware.RequirePlatform(), proxyHandler.ProxyToIdentityService())
+			protected.POST("/platform/fee-policy", middleware.RequirePlatform(), proxyHandler.ProxyToIdentityService())
 			protected.GET("/platform/creator-requests", middleware.RequirePlatform(), proxyHandler.ProxyToIdentityService())
 			protected.POST("/platform/creator-requests/:id/approve", middleware.RequirePlatform(), proxyHandler.ProxyToIdentityService())
 			protected.POST("/platform/creator-requests/:id/reject", middleware.RequirePlatform(), proxyHandler.ProxyToIdentityService())
