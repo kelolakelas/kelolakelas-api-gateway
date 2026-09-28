@@ -88,6 +88,8 @@ func TestProtectedRoutesProxyToExpectedService(t *testing.T) {
 		{name: "get private request", path: "/api/v1/schedule-requests/00000000-0000-0000-0000-000000000003", service: "academic"},
 		{name: "approve private request", path: "/api/v1/schedule-requests/00000000-0000-0000-0000-000000000003/approve", service: "academic", method: http.MethodPost},
 		{name: "reject private request", path: "/api/v1/schedule-requests/00000000-0000-0000-0000-000000000003/reject", service: "academic", method: http.MethodPost},
+		{name: "accept recommendation", path: "/api/v1/schedule-requests/00000000-0000-0000-0000-000000000003/recommendation/accept", service: "academic", method: http.MethodPost},
+		{name: "decline recommendation", path: "/api/v1/schedule-requests/00000000-0000-0000-0000-000000000003/recommendation/decline", service: "academic", method: http.MethodPost},
 		{name: "cancel private request", path: "/api/v1/schedule-requests/00000000-0000-0000-0000-000000000003/cancel", service: "academic", method: http.MethodPost},
 		// Cancellation is an action on an enrollment, not a status write, so it is
 		// exposed as POST and must still reach the academic service. Other methods on
