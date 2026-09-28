@@ -27,10 +27,13 @@ type ProxyHandler struct {
 	identityServiceURL *url.URL
 	academicServiceURL *url.URL
 	billingServiceURL  *url.URL
-	transport          http.RoundTripper
-	upstreamTimeout    time.Duration
-	maxBodyBytes       int64
-	logger             *slog.Logger
+	// chatServiceURL is nil when CHAT_SERVICE_URL is empty: the chat feature
+	// is disabled and every chat route answers 503 (KEL-122).
+	chatServiceURL  *url.URL
+	transport       http.RoundTripper
+	upstreamTimeout time.Duration
+	maxBodyBytes    int64
+	logger          *slog.Logger
 }
 
 // ProxyOptions configures the resilience behaviour shared by every proxy.
@@ -42,6 +45,9 @@ type ProxyOptions struct {
 	UpstreamTimeout time.Duration
 	MaxBodyBytes    int64
 	Logger          *slog.Logger
+	// ChatServiceURL is the optional chat-service endpoint. Empty disables
+	// the chat routes: they answer 503 instead of proxying (KEL-122).
+	ChatServiceURL string
 }
 
 func NewProxyHandler(identityServiceAddr, academicServiceAddr, billingServiceAddr string) (*ProxyHandler, error) {
@@ -64,6 +70,13 @@ func NewProxyHandlerWithOptions(identityServiceAddr, academicServiceAddr, billin
 	if err != nil {
 		return nil, err
 	}
+	var parsedChat *url.URL
+	if strings.TrimSpace(options.ChatServiceURL) != "" {
+		parsedChat, err = url.Parse(options.ChatServiceURL)
+		if err != nil {
+			return nil, err
+		}
+	}
 	logger := options.Logger
 	if logger == nil {
 		logger = slog.Default()
@@ -72,6 +85,7 @@ func NewProxyHandlerWithOptions(identityServiceAddr, academicServiceAddr, billin
 		identityServiceURL: parsedIdentity,
 		academicServiceURL: parsedAcademic,
 		billingServiceURL:  parsedBilling,
+		chatServiceURL:     parsedChat,
 		// The default transport is cloned rather than replaced so connection
 		// reuse and TLS behaviour stay as the standard library defines them.
 		transport:       http.DefaultTransport.(*http.Transport).Clone(),
@@ -108,6 +122,52 @@ func (h *ProxyHandler) ProxyToAcademicService() gin.HandlerFunc {
 
 func (h *ProxyHandler) ProxyToBillingService() gin.HandlerFunc {
 	return h.proxyRoute(h.newProxy(h.billingServiceURL), "billing-service")
+}
+
+// chatUnavailableMessage is the client-safe message every chat route returns
+// when the chat feature is disabled (CHAT_SERVICE_URL empty). It deliberately
+// does not distinguish "unconfigured" from "downstream down", so a caller
+// learns nothing about the deployment.
+const chatUnavailableMessage = "Chat service is unavailable"
+
+// ProxyToChatService forwards one protected REST chat route to chat-service.
+// Without CHAT_SERVICE_URL it answers 503 and never touches a downstream.
+func (h *ProxyHandler) ProxyToChatService() gin.HandlerFunc {
+	if h.chatServiceURL == nil {
+		return func(c *gin.Context) {
+			middleware.AbortWithErrorEnvelope(c, http.StatusServiceUnavailable, chatUnavailableMessage)
+		}
+	}
+	return h.proxyRoute(h.newProxy(h.chatServiceURL), "chat-service")
+}
+
+// ProxyToChatWS forwards the ticket-authenticated WebSocket upgrade
+// (GET /api/v1/chat/ws) to chat-service. Gateway authentication is
+// intentionally absent here: the chat-service owns the single-use ticket, and
+// the gateway must forward the Upgrade handshake untouched, including the
+// ticket query parameter.
+//
+// Two properties differ from the REST proxies on purpose:
+//   - no upstream deadline: the hijacked connection outlives any single
+//     request bound by design, so the shared PROXY_UPSTREAM_TIMEOUT_SECONDS
+//     deadline would cut every long-lived socket instead of protecting it;
+//   - an explicit Origin check mirroring CORSMiddleware: a foreign Origin is
+//     rejected with 403 before any byte reaches chat-service, even if this
+//     handler is ever wired outside the global CORS middleware.
+func (h *ProxyHandler) ProxyToChatWS(appURL string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		origin := c.GetHeader("Origin")
+		if origin != "" && (appURL == "" || origin != appURL) {
+			c.AbortWithStatus(http.StatusForbidden)
+			return
+		}
+		if h.chatServiceURL == nil {
+			middleware.AbortWithErrorEnvelope(c, http.StatusServiceUnavailable, chatUnavailableMessage)
+			return
+		}
+		c.Set(middleware.ProxyTargetContextKey, "chat-service")
+		h.newProxy(h.chatServiceURL).ServeHTTP(c.Writer, c.Request)
+	}
 }
 
 // proxyRoute wraps one reverse proxy in the gateway's per-request behaviour: the

@@ -15,10 +15,16 @@ import (
 const probeTimeout = time.Second
 
 // ReadinessConfig supplies the mandatory service endpoints and optional cache probe.
+//
+// ChatURL is optional (KEL-122): empty disables the chat check entirely, so a
+// deployment without chat-service stays healthy. When set it is probed at
+// /health rather than /ready because chat-service only serves the liveness
+// endpoint.
 type ReadinessConfig struct {
 	IdentityURL string
 	AcademicURL string
 	BillingURL  string
+	ChatURL     string
 	Redis       redis.Cmdable
 }
 
@@ -29,16 +35,29 @@ func readinessHandler(cfg ReadinessConfig) gin.HandlerFunc {
 		defer cancel()
 		components := gin.H{}
 		status, code := "healthy", http.StatusOK
-		for name, raw := range map[string]string{"identity": cfg.IdentityURL, "academic": cfg.AcademicURL, "billing": cfg.BillingURL} {
-			target, err := url.Parse(raw)
-			if err == nil && (target.Scheme != "http" && target.Scheme != "https" || target.Host == "") {
+		targets := []struct {
+			name, raw, path string
+		}{
+			{"identity", cfg.IdentityURL, "/ready"},
+			{"academic", cfg.AcademicURL, "/ready"},
+			{"billing", cfg.BillingURL, "/ready"},
+		}
+		if strings.TrimSpace(cfg.ChatURL) != "" {
+			targets = append(targets, struct {
+				name, raw, path string
+			}{"chat", cfg.ChatURL, "/health"})
+		}
+		for _, target := range targets {
+			name, raw := target.name, target.raw
+			parsed, err := url.Parse(raw)
+			if err == nil && (parsed.Scheme != "http" && parsed.Scheme != "https" || parsed.Host == "") {
 				err = http.ErrNotSupported
 			}
 			if err == nil {
-				target.Path = strings.TrimRight(target.Path, "/") + "/ready"
-				target.RawQuery = ""
+				parsed.Path = strings.TrimRight(parsed.Path, "/") + target.path
+				parsed.RawQuery = ""
 				var req *http.Request
-				req, err = http.NewRequestWithContext(ctx, http.MethodGet, target.String(), nil)
+				req, err = http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
 				if err == nil {
 					var resp *http.Response
 					resp, err = client.Do(req)

@@ -114,6 +114,12 @@ func newRouterWithReadiness(proxyHandler *handler.ProxyHandler, jwtSecret, appUR
 		// Public Webhook routes - proxying directly to billing-service
 		apiV1.POST("/billing/webhooks/duitku", proxyHandler.ProxyToBillingService())
 
+		// Chat WebSocket upgrade (KEL-122). Ticket-authenticated by
+		// chat-service itself, so there is intentionally no gateway
+		// Authorization check here; it stays behind the global CORS origin
+		// check, the global rate limiter, and StripUntrustedContextHeaders.
+		apiV1.GET("/chat/ws", proxyHandler.ProxyToChatWS(appURL))
+
 		// Protected routes
 		protected := apiV1.Group("")
 		protected.Use(middleware.AuthMiddlewareWithSessionCheck(jwtSecret, check))
@@ -225,6 +231,21 @@ func newRouterWithReadiness(proxyHandler *handler.ProxyHandler, jwtSecret, appUR
 			protected.GET("/billing/transactions", proxyHandler.ProxyToBillingService())
 			protected.GET("/billing/transactions/summary", proxyHandler.ProxyToBillingService())
 			protected.GET("/billing/transactions/:id", proxyHandler.ProxyToBillingService())
+
+			// Chat routes (KEL-122). They sit behind RequireTenant like the
+			// other tenant resources: a tenant member passes with its tenant
+			// claim and a parent passes via the parent bypass, so both callers
+			// the chat contract names can reach them. The ticket endpoint is
+			// gateway-authenticated here; chat-service validates the JWT again
+			// when minting the ticket. Without CHAT_SERVICE_URL each of these
+			// answers 503.
+			protected.GET("/chat/conversations", proxyHandler.ProxyToChatService())
+			protected.POST("/chat/conversations", proxyHandler.ProxyToChatService())
+			protected.GET("/chat/conversations/:id", proxyHandler.ProxyToChatService())
+			protected.GET("/chat/conversations/:id/messages", proxyHandler.ProxyToChatService())
+			protected.POST("/chat/conversations/:id/messages", proxyHandler.ProxyToChatService())
+			protected.POST("/chat/conversations/:id/read", proxyHandler.ProxyToChatService())
+			protected.POST("/chat/ws-tickets", proxyHandler.ProxyToChatService())
 		}
 	}
 
