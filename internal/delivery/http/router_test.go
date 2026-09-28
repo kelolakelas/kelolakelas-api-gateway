@@ -83,6 +83,11 @@ func TestProtectedRoutesProxyToExpectedService(t *testing.T) {
 		{name: "platform configuration version", path: "/api/v1/platform/configurations/api-gateway/RATE_LIMIT_REQUESTS/versions", service: "identity", method: http.MethodPost, platform: true},
 		{name: "platform configuration report", path: "/api/v1/platform/configurations/reports", service: "identity", method: http.MethodPost, platform: true},
 		{name: "enrollment", path: "/api/v1/enrollments", service: "academic"},
+		{name: "create private request", path: "/api/v1/catalog/classes/00000000-0000-0000-0000-000000000003/schedule-requests", service: "academic", method: http.MethodPost},
+		{name: "list private requests", path: "/api/v1/schedule-requests?status=pending", service: "academic"},
+		{name: "get private request", path: "/api/v1/schedule-requests/00000000-0000-0000-0000-000000000003", service: "academic"},
+		{name: "reject private request", path: "/api/v1/schedule-requests/00000000-0000-0000-0000-000000000003/reject", service: "academic", method: http.MethodPost},
+		{name: "cancel private request", path: "/api/v1/schedule-requests/00000000-0000-0000-0000-000000000003/cancel", service: "academic", method: http.MethodPost},
 		// Cancellation is an action on an enrollment, not a status write, so it is
 		// exposed as POST and must still reach the academic service. Other methods on
 		// this path stay unrouted and are covered by the cancellation test below.
