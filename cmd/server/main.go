@@ -40,6 +40,7 @@ func main() {
 			UpstreamTimeout: time.Duration(cfg.ProxyUpstreamTimeout) * time.Second,
 			MaxBodyBytes:    cfg.ProxyMaxBodyBytes,
 			Logger:          logger,
+			ChatServiceURL:  cfg.ChatServiceURL,
 		},
 	)
 	if err != nil {
@@ -69,6 +70,7 @@ func main() {
 		IdentityURL: cfg.IdentityServiceURL,
 		AcademicURL: cfg.AcademicServiceURL,
 		BillingURL:  cfg.BillingServiceURL,
+		ChatURL:     cfg.ChatServiceURL,
 		Redis:       redisClient,
 	}, proxyHandler.CheckSession)
 	if err != nil {

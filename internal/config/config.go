@@ -58,6 +58,12 @@ type Config struct {
 	IdentityServiceURL string `mapstructure:"IDENTITY_SERVICE_URL"`
 	AcademicServiceURL string `mapstructure:"ACADEMIC_SERVICE_URL"`
 	BillingServiceURL  string `mapstructure:"BILLING_SERVICE_URL"`
+	// ChatServiceURL is the optional chat-service endpoint. Empty means the
+	// chat feature is disabled: every chat route answers 503 and readiness
+	// ignores chat. Unlike the three mandatory services it has no localhost
+	// default, so an operator that never sets it gets an explicit 503 rather
+	// than a 502 aimed at a port nothing listens on (KEL-122).
+	ChatServiceURL     string `mapstructure:"CHAT_SERVICE_URL"`
 	RedisHost          string `mapstructure:"REDIS_HOST"`
 	RedisPort          string `mapstructure:"REDIS_PORT"`
 	RedisUsername      string `mapstructure:"REDIS_USERNAME"`
@@ -114,7 +120,7 @@ func LoadConfig() (Config, error) {
 
 	viper.AutomaticEnv()
 	for _, key := range []string{
-		"JWT_SECRET", "APP_URL", "PORT", "IDENTITY_SERVICE_URL", "ACADEMIC_SERVICE_URL", "BILLING_SERVICE_URL",
+		"JWT_SECRET", "APP_URL", "PORT", "IDENTITY_SERVICE_URL", "ACADEMIC_SERVICE_URL", "BILLING_SERVICE_URL", "CHAT_SERVICE_URL",
 		"REDIS_HOST", "REDIS_PORT", "REDIS_USERNAME", "REDIS_PASSWORD", "REDIS_TLS", "REDIS_DB", "RATE_LIMIT_REQUESTS",
 		"RATE_LIMIT_WINDOW_SECONDS", "RATE_LIMIT_PUBLIC_REQUESTS", "RATE_LIMIT_PROTECTED_REQUESTS",
 		"RATE_LIMIT_LOGIN_REQUESTS", "RATE_LIMIT_REGISTER_REQUESTS", "RATE_LIMIT_WEBHOOK_REQUESTS",
