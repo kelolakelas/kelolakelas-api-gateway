@@ -149,6 +149,9 @@ func newRouterWithReadiness(proxyHandler *handler.ProxyHandler, jwtSecret, appUR
 			protected.POST("/creator-requests", proxyHandler.ProxyToIdentityService())
 			protected.GET("/creator-requests", proxyHandler.ProxyToIdentityService())
 			protected.GET("/members", proxyHandler.ProxyToIdentityService())
+			// KEL-136: the tenant dashboard reads the caller's own role and
+			// permission names to filter its navigation.
+			protected.GET("/members/me/membership", proxyHandler.ProxyToIdentityService())
 			protected.GET("/tutors", proxyHandler.ProxyToIdentityService())
 			protected.GET("/members/:id", proxyHandler.ProxyToIdentityService())
 			protected.PUT("/members/:id/role", proxyHandler.ProxyToIdentityService())
