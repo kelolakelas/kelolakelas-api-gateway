@@ -141,6 +141,11 @@ func newRouterWithReadiness(proxyHandler *handler.ProxyHandler, jwtSecret, appUR
 			protected.GET("/platform/creator-requests", middleware.RequirePlatform(), proxyHandler.ProxyToIdentityService())
 			protected.POST("/platform/creator-requests/:id/approve", middleware.RequirePlatform(), proxyHandler.ProxyToIdentityService())
 			protected.POST("/platform/creator-requests/:id/reject", middleware.RequirePlatform(), proxyHandler.ProxyToIdentityService())
+			// KEL-144: billing checks the live platform assignment again before exposing
+			// full destination details or accepting a manual payout decision.
+			protected.GET("/platform/withdrawals", middleware.RequirePlatform(), proxyHandler.ProxyToBillingService())
+			protected.POST("/platform/withdrawals/:id/paid", middleware.RequirePlatform(), proxyHandler.ProxyToBillingService())
+			protected.POST("/platform/withdrawals/:id/reject", middleware.RequirePlatform(), proxyHandler.ProxyToBillingService())
 			protected.Use(middleware.RequireTenant())
 			// Proxied Identity routes
 			protected.POST("/invitations", proxyHandler.ProxyToIdentityService())
