@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -115,6 +116,11 @@ func TestProtectedRoutesProxyToExpectedService(t *testing.T) {
 		{name: "request withdrawal", path: "/api/v1/billing/withdrawals", service: "billing", method: http.MethodPost},
 		{name: "get withdrawal", path: "/api/v1/billing/withdrawals/00000000-0000-0000-0000-000000000003", service: "billing"},
 		{name: "cancel withdrawal", path: "/api/v1/billing/withdrawals/00000000-0000-0000-0000-000000000003", service: "billing", method: http.MethodDelete},
+		{name: "list vouchers", path: "/api/v1/billing/vouchers?page=2", service: "billing"},
+		{name: "create voucher", path: "/api/v1/billing/vouchers", service: "billing", method: http.MethodPost},
+		{name: "get voucher", path: "/api/v1/billing/vouchers/00000000-0000-0000-0000-000000000003", service: "billing"},
+		{name: "update voucher", path: "/api/v1/billing/vouchers/00000000-0000-0000-0000-000000000003", service: "billing", method: http.MethodPatch},
+		{name: "delete voucher", path: "/api/v1/billing/vouchers/00000000-0000-0000-0000-000000000003", service: "billing", method: http.MethodDelete},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -268,6 +274,79 @@ func TestTransactionExportRouteForwardsFiltersToBilling(t *testing.T) {
 	}
 	if gotPath != "/api/v1/billing/transactions/export" || gotQuery != "date_from=2026-09-01&date_to=2026-09-30&date_by=paid_at" || gotTenant != tenantID {
 		t.Fatalf("downstream path=%q query=%q tenant=%q", gotPath, gotQuery, gotTenant)
+	}
+}
+
+// KEL-161: the voucher collection and detail routes are registered explicitly
+// and forward to billing with the tenant from the token. The collection path
+// must not be captured by /billing/vouchers/:id, and anonymous callers never
+// reach billing.
+func TestVoucherRoutesForwardToBilling(t *testing.T) {
+	var gotPath, gotTenant string
+	var mu sync.Mutex
+	billing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		gotPath, gotTenant = r.URL.Path, r.Header.Get("X-Tenant-ID")
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer billing.Close()
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Error("voucher request reached a non-billing service")
+	}))
+	defer other.Close()
+	proxy, err := handler.NewProxyHandler(other.URL, other.URL, billing.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, route := range []struct{ method, path string }{
+		{http.MethodGet, "/api/v1/billing/vouchers"},
+		{http.MethodPost, "/api/v1/billing/vouchers"},
+		{http.MethodGet, "/api/v1/billing/vouchers/:id"},
+		{http.MethodPatch, "/api/v1/billing/vouchers/:id"},
+		{http.MethodDelete, "/api/v1/billing/vouchers/:id"},
+	} {
+		registered := false
+		for _, registeredRoute := range NewRouter(proxy, "test-secret").Routes() {
+			registered = registered || (registeredRoute.Method == route.method && registeredRoute.Path == route.path)
+		}
+		if !registered {
+			t.Fatalf("%s %s is not registered explicitly", route.method, route.path)
+		}
+	}
+	gateway := httptest.NewServer(NewRouter(proxy, "test-secret"))
+	defer gateway.Close()
+
+	anonymous, err := http.Get(gateway.URL + "/api/v1/billing/vouchers")
+	if err != nil {
+		t.Fatal(err)
+	}
+	anonymous.Body.Close()
+	if anonymous.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("anonymous status=%d, want 401 without proxying", anonymous.StatusCode)
+	}
+
+	tenantID := "00000000-0000-0000-0000-000000000002"
+	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"user_id": "00000000-0000-0000-0000-000000000001", "tenant_id": tenantID, "exp": time.Now().Add(time.Hour).Unix(),
+	}).SignedString([]byte("test-secret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, _ := http.NewRequest(http.MethodGet, gateway.URL+"/api/v1/billing/vouchers?page=2", nil)
+	request.Header.Set("Authorization", "Bearer "+token)
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	mu.Lock()
+	defer mu.Unlock()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d, want billing's 200 passed through", response.StatusCode)
+	}
+	if gotPath != "/api/v1/billing/vouchers" || gotTenant != tenantID {
+		t.Fatalf("downstream path=%q tenant=%q", gotPath, gotTenant)
 	}
 }
 

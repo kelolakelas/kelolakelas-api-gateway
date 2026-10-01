@@ -259,6 +259,16 @@ func newRouterWithReadiness(proxyHandler *handler.ProxyHandler, jwtSecret, appUR
 			protected.GET("/billing/withdrawals", proxyHandler.ProxyToBillingService())
 			protected.GET("/billing/withdrawals/:id", proxyHandler.ProxyToBillingService())
 			protected.DELETE("/billing/withdrawals/:id", proxyHandler.ProxyToBillingService())
+			// KEL-161: tenant discount vouchers. Authorization (voucher:*) and
+			// tenant scoping are owned by billing-service; the gateway only
+			// forwards the verified tenant. The static collection path stays
+			// registered explicitly so a later change to the detail route
+			// cannot silently swallow it.
+			protected.GET("/billing/vouchers", proxyHandler.ProxyToBillingService())
+			protected.POST("/billing/vouchers", proxyHandler.ProxyToBillingService())
+			protected.GET("/billing/vouchers/:id", proxyHandler.ProxyToBillingService())
+			protected.PATCH("/billing/vouchers/:id", proxyHandler.ProxyToBillingService())
+			protected.DELETE("/billing/vouchers/:id", proxyHandler.ProxyToBillingService())
 
 			// Chat routes (KEL-122). They sit behind RequireTenant like the
 			// other tenant resources: a tenant member passes with its tenant
