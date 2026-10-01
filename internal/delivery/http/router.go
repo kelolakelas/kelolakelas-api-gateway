@@ -234,6 +234,16 @@ func newRouterWithReadiness(proxyHandler *handler.ProxyHandler, jwtSecret, appUR
 			protected.GET("/billing/transactions", proxyHandler.ProxyToBillingService())
 			protected.GET("/billing/transactions/summary", proxyHandler.ProxyToBillingService())
 			protected.GET("/billing/transactions/:id", proxyHandler.ProxyToBillingService())
+			// KEL-142: tenant wallet balance, ledger mutations, and payout bank
+			// accounts. Authorization (billing:read / billing:withdraw) is owned
+			// by billing-service; the gateway only forwards the verified tenant.
+			protected.GET("/billing/wallet", proxyHandler.ProxyToBillingService())
+			protected.GET("/billing/ledger", proxyHandler.ProxyToBillingService())
+			protected.GET("/billing/bank-accounts", proxyHandler.ProxyToBillingService())
+			protected.POST("/billing/bank-accounts", proxyHandler.ProxyToBillingService())
+			protected.PATCH("/billing/bank-accounts/:id", proxyHandler.ProxyToBillingService())
+			protected.DELETE("/billing/bank-accounts/:id", proxyHandler.ProxyToBillingService())
+			protected.POST("/billing/bank-accounts/:id/set-primary", proxyHandler.ProxyToBillingService())
 
 			// Chat routes (KEL-122). They sit behind RequireTenant like the
 			// other tenant resources: a tenant member passes with its tenant
