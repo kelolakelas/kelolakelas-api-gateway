@@ -110,6 +110,7 @@ func newRouterWithReadiness(proxyHandler *handler.ProxyHandler, jwtSecret, appUR
 		// Public catalog routes are served by academic-service without authentication.
 		apiV1.GET("/catalog/classes", proxyHandler.ProxyToAcademicService())
 		apiV1.GET("/catalog/classes/:id", proxyHandler.ProxyToAcademicService())
+		apiV1.GET("/catalog/classes/:id/reviews", proxyHandler.ProxyToAcademicService())
 
 		// Public Webhook routes - proxying directly to billing-service
 		apiV1.POST("/billing/webhooks/duitku", proxyHandler.ProxyToBillingService())
@@ -224,6 +225,7 @@ func newRouterWithReadiness(proxyHandler *handler.ProxyHandler, jwtSecret, appUR
 			protected.GET("/enrollments/:id", proxyHandler.ProxyToAcademicService())
 			protected.PATCH("/enrollments/:id/schedule", proxyHandler.ProxyToAcademicService())
 			protected.POST("/enrollments/:id/cancel", proxyHandler.ProxyToAcademicService())
+			protected.PUT("/enrollments/:id/review", proxyHandler.ProxyToAcademicService())
 			protected.POST("/tenants/:tenant_id/enrollments", proxyHandler.ProxyToAcademicService())
 			protected.POST("/catalog/classes/:class_id/enrollments", proxyHandler.ProxyToAcademicService())
 			protected.POST("/catalog/classes/:class_id/schedule-requests", proxyHandler.ProxyToAcademicService())
