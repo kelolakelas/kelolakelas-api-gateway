@@ -238,6 +238,9 @@ func newRouterWithReadiness(proxyHandler *handler.ProxyHandler, jwtSecret, appUR
 			// Billing Transaction routes
 			protected.GET("/billing/transactions", proxyHandler.ProxyToBillingService())
 			protected.GET("/billing/transactions/summary", proxyHandler.ProxyToBillingService())
+			// KEL-147: the static export path stays registered explicitly so a
+			// later change to the detail route cannot silently swallow it.
+			protected.GET("/billing/transactions/export", proxyHandler.ProxyToBillingService())
 			protected.GET("/billing/transactions/:id", proxyHandler.ProxyToBillingService())
 			// KEL-142: tenant wallet balance, ledger mutations, and payout bank
 			// accounts. Authorization (billing:read / billing:withdraw) is owned
