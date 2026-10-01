@@ -104,6 +104,9 @@ func TestProtectedRoutesProxyToExpectedService(t *testing.T) {
 		{name: "report", path: "/api/v1/reports", service: "academic"},
 		{name: "billing", path: "/api/v1/billing/transactions", service: "billing"},
 		{name: "sales summary", path: "/api/v1/billing/transactions/summary?from=2026-09-01&to=2026-09-30", service: "billing"},
+		{name: "wallet balance", path: "/api/v1/billing/wallet", service: "billing"},
+		{name: "ledger", path: "/api/v1/billing/ledger", service: "billing"},
+		{name: "bank accounts", path: "/api/v1/billing/bank-accounts", service: "billing"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
