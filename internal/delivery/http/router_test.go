@@ -84,6 +84,7 @@ func TestProtectedRoutesProxyToExpectedService(t *testing.T) {
 		{name: "platform configuration version", path: "/api/v1/platform/configurations/api-gateway/RATE_LIMIT_REQUESTS/versions", service: "identity", method: http.MethodPost, platform: true},
 		{name: "platform configuration report", path: "/api/v1/platform/configurations/reports", service: "identity", method: http.MethodPost, platform: true},
 		{name: "enrollment", path: "/api/v1/enrollments", service: "academic"},
+		{name: "voucher preview", path: "/api/v1/catalog/classes/00000000-0000-0000-0000-000000000003/voucher-preview", service: "academic", method: http.MethodPost},
 		{name: "create private request", path: "/api/v1/catalog/classes/00000000-0000-0000-0000-000000000003/schedule-requests", service: "academic", method: http.MethodPost},
 		{name: "list private requests", path: "/api/v1/schedule-requests?status=pending", service: "academic"},
 		{name: "get private request", path: "/api/v1/schedule-requests/00000000-0000-0000-0000-000000000003", service: "academic"},
@@ -135,6 +136,16 @@ func TestProtectedRoutesProxyToExpectedService(t *testing.T) {
 			selectedToken := regularToken
 			if test.platform {
 				selectedToken = platformToken
+			}
+			if test.name == "voucher preview" {
+				unauthenticated, err := http.DefaultClient.Do(req)
+				if err != nil {
+					t.Fatal(err)
+				}
+				unauthenticated.Body.Close()
+				if unauthenticated.StatusCode != http.StatusUnauthorized {
+					t.Fatalf("unprotected preview status=%d", unauthenticated.StatusCode)
+				}
 			}
 			req.Header.Set("Authorization", "Bearer "+selectedToken)
 			response, err := http.DefaultClient.Do(req)

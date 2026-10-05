@@ -229,6 +229,7 @@ func newRouterWithReadiness(proxyHandler *handler.ProxyHandler, jwtSecret, appUR
 			protected.PUT("/enrollments/:id/review", proxyHandler.ProxyToAcademicService())
 			protected.POST("/tenants/:tenant_id/enrollments", proxyHandler.ProxyToAcademicService())
 			protected.POST("/catalog/classes/:class_id/enrollments", proxyHandler.ProxyToAcademicService())
+			protected.POST("/catalog/classes/:class_id/voucher-preview", proxyHandler.ProxyToAcademicService())
 			protected.POST("/catalog/classes/:class_id/schedule-requests", proxyHandler.ProxyToAcademicService())
 			protected.GET("/schedule-requests", proxyHandler.ProxyToAcademicService())
 			protected.GET("/schedule-requests/:id", proxyHandler.ProxyToAcademicService())
