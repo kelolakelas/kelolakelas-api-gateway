@@ -244,6 +244,7 @@ func newRouterWithReadiness(proxyHandler *handler.ProxyHandler, jwtSecret, appUR
 			// later change to the detail route cannot silently swallow it.
 			protected.GET("/billing/transactions/export", proxyHandler.ProxyToBillingService())
 			protected.GET("/billing/transactions/:id", proxyHandler.ProxyToBillingService())
+			protected.POST("/billing/transactions/:id/refund", proxyHandler.ProxyToBillingService())
 			// KEL-142: tenant wallet balance, ledger mutations, and payout bank
 			// accounts. Authorization (billing:read / billing:withdraw) is owned
 			// by billing-service; the gateway only forwards the verified tenant.
