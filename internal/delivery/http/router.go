@@ -105,6 +105,7 @@ func newRouterWithReadiness(proxyHandler *handler.ProxyHandler, jwtSecret, appUR
 		apiV1.POST("/platform/auth/challenge", proxyHandler.ProxyToIdentityService())
 		apiV1.POST("/platform/auth/verify", proxyHandler.ProxyToIdentityService())
 		apiV1.POST("/tenants/register", proxyHandler.ProxyToIdentityService())
+		apiV1.GET("/tenants/:id/public", proxyHandler.ProxyToIdentityService())
 		apiV1.GET("/invitations/verify", proxyHandler.ProxyToIdentityService())
 		apiV1.POST("/invitations/register", proxyHandler.ProxyToIdentityService())
 		// Public catalog routes are served by academic-service without authentication.
