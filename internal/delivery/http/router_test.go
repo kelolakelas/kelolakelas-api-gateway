@@ -89,6 +89,7 @@ func TestProtectedRoutesProxyToExpectedService(t *testing.T) {
 		{name: "list private requests", path: "/api/v1/schedule-requests?status=pending", service: "academic"},
 		{name: "get private request", path: "/api/v1/schedule-requests/00000000-0000-0000-0000-000000000003", service: "academic"},
 		{name: "approve private request", path: "/api/v1/schedule-requests/00000000-0000-0000-0000-000000000003/approve", service: "academic", method: http.MethodPost},
+		{name: "send private payment link", path: "/api/v1/schedule-requests/00000000-0000-0000-0000-000000000003/send-payment-link", service: "academic", method: http.MethodPost},
 		{name: "reject private request", path: "/api/v1/schedule-requests/00000000-0000-0000-0000-000000000003/reject", service: "academic", method: http.MethodPost},
 		{name: "accept recommendation", path: "/api/v1/schedule-requests/00000000-0000-0000-0000-000000000003/recommendation/accept", service: "academic", method: http.MethodPost},
 		{name: "decline recommendation", path: "/api/v1/schedule-requests/00000000-0000-0000-0000-000000000003/recommendation/decline", service: "academic", method: http.MethodPost},
