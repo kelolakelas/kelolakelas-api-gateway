@@ -184,6 +184,8 @@ func newRouterWithReadiness(proxyHandler *handler.ProxyHandler, jwtSecret, appUR
 			protected.PATCH("/categories/:id", proxyHandler.ProxyToAcademicService())
 			protected.DELETE("/categories/:id", proxyHandler.ProxyToAcademicService())
 			protected.GET("/classes", proxyHandler.ProxyToAcademicService())
+			protected.GET("/classes/:id", proxyHandler.ProxyToAcademicService())
+			protected.GET("/classes/:id/schedules", proxyHandler.ProxyToAcademicService())
 			protected.POST("/classes", proxyHandler.ProxyToAcademicService())
 			protected.POST("/classes/with-category", proxyHandler.ProxyToAcademicService())
 			protected.DELETE("/classes/:id", proxyHandler.ProxyToAcademicService())
