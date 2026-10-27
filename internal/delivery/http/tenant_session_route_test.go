@@ -42,9 +42,9 @@ func TestTenantSessionRoutesUseVerifiedContextAndSessionGate(t *testing.T) {
 	gateway := httptest.NewServer(router)
 	defer gateway.Close()
 	token, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"user_id": "caller", "tenant_id": tenant, "exp": time.Now().Add(time.Hour).Unix()}).SignedString([]byte("secret"))
-	for _, path := range []string{"/api/v1/auth/memberships", "/api/v1/auth/tenant"} {
+	for _, path := range []string{"/api/v1/auth/memberships", "/api/v1/auth/tenant", "/api/v1/invitations/accept"} {
 		method, body := "GET", ""
-		if strings.HasSuffix(path, "tenant") {
+		if strings.HasSuffix(path, "tenant") || strings.HasSuffix(path, "accept") {
 			method, body = "POST", `{"tenant_id":"target"}`
 		}
 		for _, tc := range []struct {
@@ -73,7 +73,7 @@ func TestTenantSessionRoutesUseVerifiedContextAndSessionGate(t *testing.T) {
 			}
 		}
 	}
-	if calls != 2 {
+	if calls != 3 {
 		t.Fatalf("upstream called %d times", calls)
 	}
 }

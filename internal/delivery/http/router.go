@@ -126,6 +126,7 @@ func newRouterWithReadiness(proxyHandler *handler.ProxyHandler, jwtSecret, appUR
 		protected := apiV1.Group("")
 		protected.Use(middleware.AuthMiddlewareWithSessionCheck(jwtSecret, check))
 		{
+			protected.POST("/invitations/accept", proxyHandler.ProxyToIdentityService())
 			protected.GET("/auth/memberships", proxyHandler.ProxyToIdentityService())
 			protected.POST("/auth/tenant", proxyHandler.ProxyToIdentityService())
 			protected.GET("/platform/me", middleware.RequirePlatform(), proxyHandler.ProxyToIdentityService())
