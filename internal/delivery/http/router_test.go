@@ -466,6 +466,45 @@ func TestClassUpdateRouteIsProtectedAcademicProxy(t *testing.T) {
 	}
 }
 
+func TestPrivateSlotLimitExactForwarding(t *testing.T) {
+	for _, route := range []struct{ method, path, body string }{
+		{http.MethodPost, "/api/v1/classes", `{ "type": "private", "private_slot_limit": 3 }`},
+		{http.MethodPost, "/api/v1/classes/with-category", `{ "class": { "type": "private", "private_slot_limit": 1 } }`},
+		{http.MethodPatch, "/api/v1/classes/00000000-0000-0000-0000-000000000001", `{ "private_slot_limit": 2 }`},
+	} {
+		t.Run(route.method+route.path, func(t *testing.T) {
+			var gotBody, gotPath, gotMethod string
+			academic := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				body, err := io.ReadAll(r.Body)
+				if err != nil {
+					w.WriteHeader(500)
+					return
+				}
+				gotBody, gotPath, gotMethod = string(body), r.URL.Path, r.Method
+				w.Header().Set("Content-Type", "application/json")
+				w.Write([]byte(`{"private_slot_limit":3}`))
+			}))
+			defer academic.Close()
+			proxy, err := handler.NewProxyHandler("http://identity", academic.URL, "http://billing")
+			if err != nil {
+				t.Fatal(err)
+			}
+			token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"user_id": "00000000-0000-0000-0000-000000000001", "tenant_id": "00000000-0000-0000-0000-000000000002", "exp": time.Now().Add(time.Hour).Unix()}).SignedString([]byte("secret"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			request := httptest.NewRequest(route.method, route.path, strings.NewReader(route.body))
+			request.Header.Set("Authorization", "Bearer "+token)
+			request.Header.Set("Content-Type", "application/json")
+			response := newCloseNotifyRecorder()
+			NewRouter(proxy, "secret").ServeHTTP(response, request)
+			if gotBody != route.body || gotPath != route.path || gotMethod != route.method || response.Code != 200 || response.Body.String() != `{"private_slot_limit":3}` {
+				t.Fatalf("forwarding changed: %s %s %q status=%d response=%s", gotMethod, gotPath, gotBody, response.Code, response.Body.String())
+			}
+		})
+	}
+}
+
 // TestClassPublicationRouteStillWorks guards against the new PATCH /classes/:id
 // route shadowing the pre-existing publication toggle.
 func TestClassPublicationRouteStillWorks(t *testing.T) {
