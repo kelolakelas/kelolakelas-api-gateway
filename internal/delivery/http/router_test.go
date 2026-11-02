@@ -164,6 +164,45 @@ func TestProtectedRoutesProxyToExpectedService(t *testing.T) {
 	}
 }
 
+func TestPrivateApprovalForwardsSnapshotSelection(t *testing.T) {
+	const payload = `{"selected_slot_indexes":[1],"proposal_snapshot":[{"day_of_week":1,"start_time":"10:00:00","end_time":"11:00:00"},{"day_of_week":3,"start_time":"12:00:00","end_time":"13:00:00"}],"expected_private_slot_limit":1}`
+	var gotBody, gotTenant string
+	academic := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		raw, err := io.ReadAll(request.Body)
+		if err != nil {
+			t.Error(err)
+		}
+		gotBody, gotTenant = string(raw), request.Header.Get("X-Tenant-ID")
+		writer.WriteHeader(http.StatusNoContent)
+	}))
+	defer academic.Close()
+	proxy, err := handler.NewProxyHandler(academic.URL, academic.URL, academic.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(NewRouter(proxy, "test-secret"))
+	defer server.Close()
+	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"user_id": "00000000-0000-0000-0000-000000000001", "tenant_id": "00000000-0000-0000-0000-000000000002", "exp": time.Now().Add(time.Hour).Unix()}).SignedString([]byte("test-secret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := http.NewRequest(http.MethodPost, server.URL+"/api/v1/schedule-requests/00000000-0000-0000-0000-000000000003/approve", strings.NewReader(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Authorization", "Bearer "+token)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-Tenant-ID", "forged")
+	response, err := server.Client().Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusNoContent || gotBody != payload || gotTenant != "00000000-0000-0000-0000-000000000002" {
+		t.Fatalf("status=%d body=%s tenant=%s", response.StatusCode, gotBody, gotTenant)
+	}
+}
+
 // KEL-58: the summary route is protected and forwards its path and range query unchanged
 // with the tenant from the token; billing owns the range validation and billing:read check.
 func TestSalesSummaryRouteForwardsRangeToBilling(t *testing.T) {
